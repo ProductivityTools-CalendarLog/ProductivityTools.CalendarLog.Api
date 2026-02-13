@@ -1,0 +1,6 @@
+@ProductivityTools.CalendarLog.Api_HostAddress = http://localhost:5188
+
+GET {{ProductivityTools.CalendarLog.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
