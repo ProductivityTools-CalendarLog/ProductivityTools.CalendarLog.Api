@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductivityTools.CalendarL
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductivityTools.CalendarLog.Api.Database", "ProductivityTools.CalendarLog.Api.Database\ProductivityTools.CalendarLog.Api.Database.csproj", "{5EF75184-4C5E-4AE2-B53B-0ED405D73392}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProductivityTools.CalendarLog.Api.Tests", "ProductivityTools.CalendarLog.Api.Tests\ProductivityTools.CalendarLog.Api.Tests.csproj", "{2D91F0BD-ABE8-477C-9913-710E635A76C0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{5EF75184-4C5E-4AE2-B53B-0ED405D73392}.Release|x64.Build.0 = Release|Any CPU
 		{5EF75184-4C5E-4AE2-B53B-0ED405D73392}.Release|x86.ActiveCfg = Release|Any CPU
 		{5EF75184-4C5E-4AE2-B53B-0ED405D73392}.Release|x86.Build.0 = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|x64.Build.0 = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Debug|x86.Build.0 = Debug|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|x64.ActiveCfg = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|x64.Build.0 = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|x86.ActiveCfg = Release|Any CPU
+		{2D91F0BD-ABE8-477C-9913-710E635A76C0}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

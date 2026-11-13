@@ -1,0 +1,67 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using ProductivityTools.CalendarLog.Api.Database;
+
+namespace ProductivityTools.CalendarLog.Api.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/raw-events")]
+public class RawEventsController : ControllerBase
+{
+    private readonly CalendarLogContext _db;
+
+    public RawEventsController(CalendarLogContext db)
+    {
+        _db = db;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> List(
+        [FromQuery] string? account,
+        [FromQuery] string? calendarId,
+        [FromQuery] DateTimeOffset? from,
+        [FromQuery] DateTimeOffset? to,
+        [FromQuery] bool includeDeleted = false,
+        [FromQuery] int limit = 500,
+        CancellationToken cancellationToken = default)
+    {
+        var cappedLimit = Math.Clamp(limit, 1, 5000);
+        var query = _db.RawCalendarEvents.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalized = account.Trim();
+            query = query.Where(e => e.Account == normalized);
+        }
+
+        if (!string.IsNullOrWhiteSpace(calendarId))
+        {
+            var normalized = calendarId.Trim();
+            query = query.Where(e => e.CalendarId == normalized);
+        }
+
+        if (from.HasValue)
+        {
+            query = query.Where(e => e.StartTime >= from.Value);
+        }
+
+        if (to.HasValue)
+        {
+            query = query.Where(e => e.StartTime <= to.Value);
+        }
+
+        if (!includeDeleted)
+        {
+            query = query.Where(e => !e.IsDeleted);
+        }
+
+        var events = await query
+            .OrderByDescending(e => e.StartTime)
+            .Take(cappedLimit)
+            .ToListAsync(cancellationToken);
+
+        return Ok(events);
+    }
+}
