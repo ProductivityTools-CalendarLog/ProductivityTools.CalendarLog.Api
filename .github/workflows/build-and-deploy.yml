@@ -1,0 +1,152 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  get-runners:
+    runs-on: ubuntu-latest
+    outputs:
+      runner_list: ${{ steps.set-runners.outputs.matrix }}
+    steps:
+      - name: Pobierz aktywne runnery
+        id: set-runners
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          RUNNERS=$(gh api /repos/${{ github.repository }}/actions/runners --jq '[.runners[] | select(.status=="online") | .name]')
+          echo "matrix=$RUNNERS" >> $GITHUB_OUTPUT
+
+  sync-configuration:
+    needs: get-runners
+    strategy:
+      fail-fast: false # When error, continue on the rest
+      matrix:
+        machine: ${{ fromJson(needs.get-runners.outputs.runner_list) }}
+    # Dynamic assignment to each machine from the matrix
+    # Note: This workflow deploys to IIS and SQL Server.
+    # It must run on a self-hosted runner installed on the target Windows deployment server.
+    runs-on: [self-hosted, "${{ matrix.machine }}"]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v5
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '9.0'
+
+    - name: Run Tests
+      shell: cmd
+      run: dotnet test ProductivityTools.CalendarLog.Api.sln -c Release
+
+    - name: Build and Publish Solution
+      shell: cmd
+      run: dotnet publish ProductivityTools.CalendarLog.Api.sln -c Release
+
+    - name: Delete old database migration directory
+      shell: powershell
+      run: |
+        if (Test-Path "C:\Bin\DbMigration\PTCalendarLog.Api") {
+            Remove-Item "C:\Bin\DbMigration\PTCalendarLog.Api" -Recurse -Force
+        }
+
+    - name: Copy database migration files
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path "C:\Bin\DbMigration\PTCalendarLog.Api"
+        Copy-Item -Path "ProductivityTools.CalendarLog.Api.Db\bin\Release\net9.0\publish\*" -Destination "C:\Bin\DbMigration\PTCalendarLog.Api\" -Recurse -Force
+
+    - name: Run database migrations
+      shell: cmd
+      run: C:\Bin\DbMigration\PTCalendarLog.Api\ProductivityTools.CalendarLog.Api.DbUp.exe
+
+    - name: Ensure IIS Site and AppPool Exist
+      shell: powershell
+      run: |
+        function CheckIfExist($Name) {
+            cd $env:SystemRoot\system32\inetsrv
+            $exists = (.\appcmd.exe list sites /name:$Name) -ne $null
+            Write-Host "Site exists: $exists"
+            return $exists
+        }
+
+        function Create($Name, $HttpBinding, $PhysicalPath) {
+            $exists = CheckIfExist $Name
+            if ($exists) {
+                Write-Host "Web page already existing"
+            }
+            else {
+                Write-Host "Creating app pool"
+                .\appcmd.exe add apppool /name:$Name /managedRuntimeVersion:"v4.0" /managedPipelineMode:"Integrated"
+                Write-Host "Creating webpage"
+                .\appcmd.exe add site /name:$Name /bindings:http://$HttpBinding /physicalpath:$PhysicalPath
+                Write-Host "Assign app pool to the website"
+                .\appcmd.exe set app "$Name/" /applicationPool:"$Name"
+            }
+        }
+
+        Create "PTCalendarLog" "*:8005" "C:\Bin\IIS\PTCalendarLog"
+
+    - name: Open Firewall Port 8005
+      shell: powershell
+      run: |
+        if (!(Get-NetFirewallRule -DisplayName "PTCalendarLog 8005" -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -DisplayName "PTCalendarLog 8005" -Direction Inbound -LocalPort 8005 -Protocol TCP -Action Allow
+        }
+
+    - name: Stop IIS site
+      shell: cmd
+      run: |
+        %windir%\system32\inetsrv\appcmd stop site /site.name:PTCalendarLog
+
+    - name: Stop IIS App Pool
+      shell: cmd
+      run: "%windir%\\system32\\inetsrv\\appcmd stop apppool /apppool.name:PTCalendarLog"
+      continue-on-error: true
+
+    - name: Delete old IIS directory
+      shell: powershell
+      run: |
+        if (Test-Path "C:\Bin\IIS\PTCalendarLog") {
+            while ($true) {
+                try {
+                    Remove-Item "C:\Bin\IIS\PTCalendarLog" -Recurse -Force -ErrorAction Stop
+                    break
+                }
+                catch {
+                    Write-Output "Removing failed, waiting to retry..."
+                    Start-Sleep -Seconds 1
+                }
+            }
+        }
+
+    - name: Copy web page to IIS Bin directory
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path "C:\Bin\IIS\PTCalendarLog"
+        Copy-Item -Path "ProductivityTools.CalendarLog.Api\bin\Release\net9.0\publish\*" -Destination "C:\Bin\IIS\PTCalendarLog\" -Recurse -Force
+
+    - name: Start IIS App Pool
+      shell: cmd
+      run: "%windir%\\system32\\inetsrv\\appcmd start apppool /apppool.name:PTCalendarLog"
+
+    - name: Start IIS Site
+      shell: cmd
+      run: "%windir%\\system32\\inetsrv\\appcmd start site /site.name:PTCalendarLog"
+
+    - name: Create SQL Login
+      shell: cmd
+      run: sqlcmd -S ".\SQL2022" -q "IF NOT EXISTS (SELECT * FROM sys.server_principals WHERE name = 'IIS APPPOOL\PTCalendarLog') CREATE LOGIN [IIS APPPOOL\PTCalendarLog] FROM WINDOWS WITH DEFAULT_DATABASE=[PTCalendarLog];"
+
+    - name: Create SQL User
+      shell: cmd
+      run: sqlcmd -S ".\SQL2022" -q "USE PTCalendarLog; IF NOT EXISTS (SELECT * FROM sys.database_principals WHERE name = 'IIS APPPOOL\PTCalendarLog') CREATE USER [IIS APPPOOL\PTCalendarLog] FOR LOGIN [IIS APPPOOL\PTCalendarLog];"
+
+    - name: Grant db_owner to IIS AppPool
+      shell: cmd
+      run: sqlcmd -S ".\SQL2022" -q "USE PTCalendarLog; ALTER ROLE [db_owner] ADD MEMBER [IIS APPPOOL\PTCalendarLog];"
