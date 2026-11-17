@@ -15,7 +15,7 @@ public sealed class RawEventSyncService
     private readonly CalendarLogContext _db;
     private readonly CalendarMutationPlanner _mutationPlanner;
     private readonly int _defaultLookbackDays;
-    private readonly int? _maxEventsPerRun;
+    private readonly bool _todayOnly;
     private readonly TimeZoneInfo _timeZone;
 
     public RawEventSyncService(
@@ -25,9 +25,8 @@ public sealed class RawEventSyncService
     {
         _db = db;
         _mutationPlanner = mutationPlanner;
-        _defaultLookbackDays = Math.Max(1, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
-        var maxEvents = configuration.GetValue<int?>("Sync:MaxEventsPerRun");
-        _maxEventsPerRun = maxEvents is > 0 ? maxEvents : null;
+        _defaultLookbackDays = Math.Max(0, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
+        _todayOnly = configuration.GetValue<bool>("Sync:TodayOnly");
         var tzId = configuration["Sync:TimeZone"] ?? "Europe/Warsaw";
         _timeZone = ResolveTimeZone(tzId);
     }
@@ -51,21 +50,29 @@ public sealed class RawEventSyncService
 
         foreach (var state in states)
         {
-            var lookbackDays = state.DefaultLookbackDays > 0 ? state.DefaultLookbackDays : _defaultLookbackDays;
-            var start = today.AddDays(-lookbackDays);
-
-            if (state.LastSyncedDate.HasValue)
+            DateOnly start;
+            if (_todayOnly)
             {
-                var catchupStart = state.LastSyncedDate.Value.AddDays(-1);
-                if (catchupStart < start)
-                {
-                    start = catchupStart;
-                }
+                start = today;
             }
-
-            if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
+            else
             {
-                start = state.PendingBackfillFrom.Value;
+                var lookbackDays = state.DefaultLookbackDays > 0 ? state.DefaultLookbackDays : _defaultLookbackDays;
+                start = today.AddDays(-lookbackDays);
+
+                if (state.LastSyncedDate.HasValue)
+                {
+                    var catchupStart = state.LastSyncedDate.Value.AddDays(-1);
+                    if (catchupStart < start)
+                    {
+                        start = catchupStart;
+                    }
+                }
+
+                if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
+                {
+                    start = state.PendingBackfillFrom.Value;
+                }
             }
 
             if (overallStart == null || start < overallStart.Value)
@@ -87,10 +94,10 @@ public sealed class RawEventSyncService
         return new SyncPlanResponse
         {
             Account = normalizedAccount,
-            StartDate = overallStart ?? today.AddDays(-_defaultLookbackDays),
+            StartDate = overallStart ?? (_todayOnly ? today : today.AddDays(-_defaultLookbackDays)),
             EndDate = today,
             DefaultLookbackDays = _defaultLookbackDays,
-            MaxEvents = _maxEventsPerRun,
+            TodayOnly = _todayOnly,
             Calendars = calendarItems
         };
     }
@@ -132,17 +139,6 @@ public sealed class RawEventSyncService
             }
 
             incomingById[parsed.ExternalEventId] = parsed;
-        }
-
-        var truncatedByMaxEvents = false;
-        if (_maxEventsPerRun.HasValue && incomingById.Count > _maxEventsPerRun.Value)
-        {
-            truncatedByMaxEvents = true;
-            incomingById = incomingById.Values
-                .OrderBy(e => e.StartTime)
-                .ThenBy(e => e.ExternalEventId, StringComparer.Ordinal)
-                .Take(_maxEventsPerRun.Value)
-                .ToDictionary(e => e.ExternalEventId, StringComparer.Ordinal);
         }
 
         var useTransaction = _db.Database.IsRelational();
@@ -257,21 +253,17 @@ public sealed class RawEventSyncService
             }
         }
 
-        // 4. Soft-delete events in this window that are no longer present in Google Calendar
-        //    (skipped when MaxEventsPerRun artificially truncated the batch).
-        if (!truncatedByMaxEvents && !_maxEventsPerRun.HasValue)
+        // 4. Soft-delete events in this window that are no longer present in Google Calendar.
+        foreach (var existing in existingInRange)
         {
-            foreach (var existing in existingInRange)
+            if (!existing.IsDeleted && !incomingById.ContainsKey(existing.ExternalEventId))
             {
-                if (!existing.IsDeleted && !incomingById.ContainsKey(existing.ExternalEventId))
-                {
-                    existing.IsDeleted = true;
-                    existing.ProcessingStatus = RawEventProcessingStatus.New;
-                    existing.ErrorMessage = null;
-                    existing.ProcessedAtUtc = null;
-                    existing.UpdatedAtUtc = nowUtc;
-                    softDeleted++;
-                }
+                existing.IsDeleted = true;
+                existing.ProcessingStatus = RawEventProcessingStatus.New;
+                existing.ErrorMessage = null;
+                existing.ProcessedAtUtc = null;
+                existing.UpdatedAtUtc = nowUtc;
+                softDeleted++;
             }
         }
 

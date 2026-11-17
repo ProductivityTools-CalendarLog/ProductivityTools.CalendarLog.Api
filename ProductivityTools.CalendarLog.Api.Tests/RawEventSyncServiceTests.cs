@@ -597,44 +597,41 @@ public class RawEventSyncServiceTests
     }
 
     [Test]
-    public async Task Sync_WithMaxEventsPerRunSetToOne_ExposesLimitInPlanAndIngestsOnlyOneEvent()
+    public async Task GetSyncPlan_WhenTodayOnlyEnabled_ReturnsTodayStartAndEndForAllCalendars()
     {
-        var limitedConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Sync:DefaultLookbackDays"] = "14",
-                ["Sync:MaxEventsPerRun"] = "1",
-                ["Sync:TimeZone"] = "Europe/Warsaw"
-            })
-            .Build();
+        var today = new DateOnly(2026, 11, 17);
 
-        var limitedService = new RawEventSyncService(_db, limitedConfig, _mutationPlanner);
-
-        var plan = await limitedService.GetSyncPlanAsync("pwujczyk@google.com", new DateOnly(2026, 11, 17));
-        Assert.That(plan.MaxEvents, Is.EqualTo(1));
-
-        var start = new DateTimeOffset(2026, 11, 10, 9, 0, 0, TimeSpan.FromHours(1));
-        var end = new DateTimeOffset(2026, 11, 17, 23, 59, 59, TimeSpan.FromHours(1));
-
-        var syncResult = await limitedService.IngestRawEventsAsync(new RawEventsBatchRequest
+        _db.CalendarSyncStates.Add(new CalendarSyncState
         {
             Account = "pwujczyk@google.com",
             CalendarId = "cal-1",
             CalendarName = "DailyLog",
-            RangeStart = start,
-            RangeEnd = end,
-            Events = new()
-            {
-                MakeGoogleEvent("evt-1", "First event", start),
-                MakeGoogleEvent("evt-2", "Second event", start.AddHours(2)),
-                MakeGoogleEvent("evt-3", "Third event", start.AddHours(4))
-            }
+            IsActive = true,
+            DefaultLookbackDays = 14,
+            LastSyncedDate = new DateOnly(2026, 10, 1),
+            PendingBackfillFrom = new DateOnly(2026, 8, 1)
         });
+        await _db.SaveChangesAsync();
 
-        Assert.That(syncResult.TotalReceived, Is.EqualTo(1));
-        Assert.That(syncResult.Inserted, Is.EqualTo(1));
-        Assert.That(await _db.RawCalendarEvents.CountAsync(), Is.EqualTo(1));
-        Assert.That((await _db.RawCalendarEvents.SingleAsync()).ExternalEventId, Is.EqualTo("evt-1"));
+        var todayOnlyConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Sync:DefaultLookbackDays"] = "14",
+                ["Sync:TodayOnly"] = "true",
+                ["Sync:TimeZone"] = "Europe/Warsaw"
+            })
+            .Build();
+
+        var todayOnlyService = new RawEventSyncService(_db, todayOnlyConfig, _mutationPlanner);
+
+        var plan = await todayOnlyService.GetSyncPlanAsync("pwujczyk@google.com", today);
+
+        Assert.That(plan.TodayOnly, Is.True);
+        Assert.That(plan.StartDate, Is.EqualTo(today));
+        Assert.That(plan.EndDate, Is.EqualTo(today));
+        Assert.That(plan.Calendars, Has.Count.EqualTo(1));
+        Assert.That(plan.Calendars[0].StartDate, Is.EqualTo(today));
+        Assert.That(plan.Calendars[0].EndDate, Is.EqualTo(today));
     }
 
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>
