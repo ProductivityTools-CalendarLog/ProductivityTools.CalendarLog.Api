@@ -56,28 +56,33 @@ public class RawEventSyncServiceTests
         var plan = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
 
         Assert.That(plan.Account, Is.EqualTo("pwujczyk@google.com"));
-        Assert.That(plan.StartDate, Is.EqualTo(new DateOnly(2026, 11, 2)));
+        Assert.That(plan.StartDate, Is.EqualTo(new DateOnly(2026, 11, 3)));
         Assert.That(plan.EndDate, Is.EqualTo(today));
         Assert.That(plan.Calendars, Is.Empty);
     }
 
     [Test]
-    public async Task GetSyncPlan_WithDowntimeGap_WidensStartDateToCatchUp()
+    public async Task GetSyncPlan_WithOneDayLookback_IgnoresOldLastSyncedDateAndReturnsOnlyToday()
     {
+        var today = new DateOnly(2026, 11, 17);
+
         _db.CalendarSyncStates.Add(new CalendarSyncState
         {
             Account = "pwujczyk@google.com",
             CalendarId = "cal-1",
-            DefaultLookbackDays = 14,
-            LastSyncedDate = new DateOnly(2026, 10, 10)
+            DefaultLookbackDays = 1,
+            LastSyncedDate = new DateOnly(2026, 11, 16)
         });
         await _db.SaveChangesAsync();
 
-        var plan = await _service.GetSyncPlanAsync("pwujczyk@google.com", new DateOnly(2026, 11, 16));
+        var plan = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
 
-        Assert.That(plan.StartDate, Is.EqualTo(new DateOnly(2026, 10, 9)));
+        Assert.That(plan.StartDate, Is.EqualTo(today));
+        Assert.That(plan.EndDate, Is.EqualTo(today));
         Assert.That(plan.Calendars, Has.Count.EqualTo(1));
-        Assert.That(plan.Calendars[0].StartDate, Is.EqualTo(new DateOnly(2026, 10, 9)));
+        Assert.That(plan.Calendars[0].LookbackDays, Is.EqualTo(1));
+        Assert.That(plan.Calendars[0].StartDate, Is.EqualTo(today));
+        Assert.That(plan.Calendars[0].EndDate, Is.EqualTo(today));
     }
 
     [Test]
@@ -106,7 +111,7 @@ public class RawEventSyncServiceTests
         });
 
         var planAfter = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
-        Assert.That(planAfter.StartDate, Is.EqualTo(new DateOnly(2026, 11, 2)));
+        Assert.That(planAfter.StartDate, Is.EqualTo(new DateOnly(2026, 11, 3)));
         Assert.That(planAfter.Calendars[0].PendingBackfillFrom, Is.Null);
         Assert.That(planAfter.Calendars[0].LastSyncedDate, Is.EqualTo(today));
     }
@@ -332,7 +337,7 @@ public class RawEventSyncServiceTests
 
         Assert.That(plan.Calendars, Has.Count.EqualTo(1));
         Assert.That(plan.Calendars[0].CalendarId, Is.EqualTo("cal-active"));
-        Assert.That(plan.Calendars[0].StartDate, Is.EqualTo(new DateOnly(2026, 10, 26)));
+        Assert.That(plan.Calendars[0].StartDate, Is.EqualTo(new DateOnly(2026, 10, 27)));
     }
 
     [Test]

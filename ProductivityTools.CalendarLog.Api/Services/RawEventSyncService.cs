@@ -49,16 +49,9 @@ public sealed class RawEventSyncService
         foreach (var state in states)
         {
             var lookbackDays = state.DefaultLookbackDays >= 0 ? state.DefaultLookbackDays : _defaultLookbackDays;
-            var start = today.AddDays(-lookbackDays);
-
-            if (lookbackDays > 0 && state.LastSyncedDate.HasValue)
-            {
-                var catchupStart = state.LastSyncedDate.Value.AddDays(-1);
-                if (catchupStart < start)
-                {
-                    start = catchupStart;
-                }
-            }
+            // lookbackDays = 0 or 1 -> today only (1 day); lookbackDays = 14 -> today and 13 preceding days (14 days total).
+            var daysBack = Math.Max(0, lookbackDays - 1);
+            var start = today.AddDays(-daysBack);
 
             if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
             {
@@ -74,6 +67,7 @@ public sealed class RawEventSyncService
             {
                 CalendarId = state.CalendarId,
                 CalendarName = state.CalendarName,
+                LookbackDays = lookbackDays,
                 StartDate = start,
                 EndDate = today,
                 LastSyncedDate = state.LastSyncedDate,
@@ -81,10 +75,11 @@ public sealed class RawEventSyncService
             });
         }
 
+        var defaultDaysBack = Math.Max(0, _defaultLookbackDays - 1);
         return new SyncPlanResponse
         {
             Account = normalizedAccount,
-            StartDate = overallStart ?? today.AddDays(-_defaultLookbackDays),
+            StartDate = overallStart ?? today.AddDays(-defaultDaysBack),
             EndDate = today,
             DefaultLookbackDays = _defaultLookbackDays,
             Calendars = calendarItems
@@ -595,6 +590,17 @@ public sealed class RawEventSyncService
         }
         catch (TimeZoneNotFoundException)
         {
+            if (string.Equals(timeZoneId, "Europe/Warsaw", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");
+                }
+                catch
+                {
+                    // Fall through to UTC
+                }
+            }
             return TimeZoneInfo.Utc;
         }
         catch (InvalidTimeZoneException)

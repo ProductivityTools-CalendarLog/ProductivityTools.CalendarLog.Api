@@ -16,6 +16,7 @@ public sealed class CalendarSyncPlanItem
 {
     public string CalendarId { get; set; } = string.Empty;
     public string? CalendarName { get; set; }
+    public int LookbackDays { get; set; }
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public DateOnly? LastSyncedDate { get; set; }
