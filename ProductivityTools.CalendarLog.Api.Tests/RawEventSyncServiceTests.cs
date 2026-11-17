@@ -596,6 +596,47 @@ public class RawEventSyncServiceTests
         Assert.That(await _db.RawCalendarEvents.CountAsync(), Is.EqualTo(0));
     }
 
+    [Test]
+    public async Task Sync_WithMaxEventsPerRunSetToOne_ExposesLimitInPlanAndIngestsOnlyOneEvent()
+    {
+        var limitedConfig = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Sync:DefaultLookbackDays"] = "14",
+                ["Sync:MaxEventsPerRun"] = "1",
+                ["Sync:TimeZone"] = "Europe/Warsaw"
+            })
+            .Build();
+
+        var limitedService = new RawEventSyncService(_db, limitedConfig, _mutationPlanner);
+
+        var plan = await limitedService.GetSyncPlanAsync("pwujczyk@google.com", new DateOnly(2026, 11, 17));
+        Assert.That(plan.MaxEvents, Is.EqualTo(1));
+
+        var start = new DateTimeOffset(2026, 11, 10, 9, 0, 0, TimeSpan.FromHours(1));
+        var end = new DateTimeOffset(2026, 11, 17, 23, 59, 59, TimeSpan.FromHours(1));
+
+        var syncResult = await limitedService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = "pwujczyk@google.com",
+            CalendarId = "cal-1",
+            CalendarName = "DailyLog",
+            RangeStart = start,
+            RangeEnd = end,
+            Events = new()
+            {
+                MakeGoogleEvent("evt-1", "First event", start),
+                MakeGoogleEvent("evt-2", "Second event", start.AddHours(2)),
+                MakeGoogleEvent("evt-3", "Third event", start.AddHours(4))
+            }
+        });
+
+        Assert.That(syncResult.TotalReceived, Is.EqualTo(1));
+        Assert.That(syncResult.Inserted, Is.EqualTo(1));
+        Assert.That(await _db.RawCalendarEvents.CountAsync(), Is.EqualTo(1));
+        Assert.That((await _db.RawCalendarEvents.SingleAsync()).ExternalEventId, Is.EqualTo("evt-1"));
+    }
+
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>
         JsonSerializer.SerializeToElement(new
         {

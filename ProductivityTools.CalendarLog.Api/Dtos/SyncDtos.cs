@@ -9,6 +9,7 @@ public sealed class SyncPlanResponse
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public int DefaultLookbackDays { get; set; }
+    public int? MaxEvents { get; set; }
     public List<CalendarSyncPlanItem> Calendars { get; set; } = new();
 }
 

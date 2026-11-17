@@ -15,6 +15,7 @@ public sealed class RawEventSyncService
     private readonly CalendarLogContext _db;
     private readonly CalendarMutationPlanner _mutationPlanner;
     private readonly int _defaultLookbackDays;
+    private readonly int? _maxEventsPerRun;
     private readonly TimeZoneInfo _timeZone;
 
     public RawEventSyncService(
@@ -25,6 +26,8 @@ public sealed class RawEventSyncService
         _db = db;
         _mutationPlanner = mutationPlanner;
         _defaultLookbackDays = Math.Max(1, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
+        var maxEvents = configuration.GetValue<int?>("Sync:MaxEventsPerRun");
+        _maxEventsPerRun = maxEvents is > 0 ? maxEvents : null;
         var tzId = configuration["Sync:TimeZone"] ?? "Europe/Warsaw";
         _timeZone = ResolveTimeZone(tzId);
     }
@@ -87,6 +90,7 @@ public sealed class RawEventSyncService
             StartDate = overallStart ?? today.AddDays(-_defaultLookbackDays),
             EndDate = today,
             DefaultLookbackDays = _defaultLookbackDays,
+            MaxEvents = _maxEventsPerRun,
             Calendars = calendarItems
         };
     }
@@ -128,6 +132,17 @@ public sealed class RawEventSyncService
             }
 
             incomingById[parsed.ExternalEventId] = parsed;
+        }
+
+        var truncatedByMaxEvents = false;
+        if (_maxEventsPerRun.HasValue && incomingById.Count > _maxEventsPerRun.Value)
+        {
+            truncatedByMaxEvents = true;
+            incomingById = incomingById.Values
+                .OrderBy(e => e.StartTime)
+                .ThenBy(e => e.ExternalEventId, StringComparer.Ordinal)
+                .Take(_maxEventsPerRun.Value)
+                .ToDictionary(e => e.ExternalEventId, StringComparer.Ordinal);
         }
 
         var useTransaction = _db.Database.IsRelational();
@@ -242,17 +257,21 @@ public sealed class RawEventSyncService
             }
         }
 
-        // 4. Soft-delete events in this window that are no longer present in Google Calendar.
-        foreach (var existing in existingInRange)
+        // 4. Soft-delete events in this window that are no longer present in Google Calendar
+        //    (skipped when MaxEventsPerRun artificially truncated the batch).
+        if (!truncatedByMaxEvents && !_maxEventsPerRun.HasValue)
         {
-            if (!existing.IsDeleted && !incomingById.ContainsKey(existing.ExternalEventId))
+            foreach (var existing in existingInRange)
             {
-                existing.IsDeleted = true;
-                existing.ProcessingStatus = RawEventProcessingStatus.New;
-                existing.ErrorMessage = null;
-                existing.ProcessedAtUtc = null;
-                existing.UpdatedAtUtc = nowUtc;
-                softDeleted++;
+                if (!existing.IsDeleted && !incomingById.ContainsKey(existing.ExternalEventId))
+                {
+                    existing.IsDeleted = true;
+                    existing.ProcessingStatus = RawEventProcessingStatus.New;
+                    existing.ErrorMessage = null;
+                    existing.ProcessedAtUtc = null;
+                    existing.UpdatedAtUtc = nowUtc;
+                    softDeleted++;
+                }
             }
         }
 
