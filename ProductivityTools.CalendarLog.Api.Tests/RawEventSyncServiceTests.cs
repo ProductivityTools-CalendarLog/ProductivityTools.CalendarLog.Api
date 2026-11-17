@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using NUnit.Framework;
+using ProductivityTools.CalendarLog.Api.Controllers;
 using ProductivityTools.CalendarLog.Api.Database;
 using ProductivityTools.CalendarLog.Api.Database.Entities;
 using ProductivityTools.CalendarLog.Api.Dtos;
@@ -563,6 +565,35 @@ public class RawEventSyncServiceTests
 
         Assert.That(resA.Mutations.Single().NewTitle, Is.EqualTo("Operations: mail"));
         Assert.That(resB.Mutations.Single().NewTitle, Is.EqualTo("Other: mail"));
+    }
+
+    [Test]
+    public async Task RawEventsController_DeleteAll_ClearsRawCalendarEventsTable()
+    {
+        var start = new DateTimeOffset(2026, 11, 10, 9, 0, 0, TimeSpan.FromHours(1));
+        var end = new DateTimeOffset(2026, 11, 16, 23, 59, 59, TimeSpan.FromHours(1));
+
+        await _service.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = "pwujczyk@google.com",
+            CalendarId = "cal-1",
+            CalendarName = "Work",
+            RangeStart = start,
+            RangeEnd = end,
+            Events = new()
+            {
+                MakeGoogleEvent("evt-1", "One", start),
+                MakeGoogleEvent("evt-2", "Two", start.AddHours(2))
+            }
+        });
+
+        Assert.That(await _db.RawCalendarEvents.CountAsync(), Is.EqualTo(2));
+
+        var controller = new RawEventsController(_db);
+        var result = await controller.DeleteAll();
+
+        Assert.That(result, Is.InstanceOf<OkObjectResult>());
+        Assert.That(await _db.RawCalendarEvents.CountAsync(), Is.EqualTo(0));
     }
 
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>

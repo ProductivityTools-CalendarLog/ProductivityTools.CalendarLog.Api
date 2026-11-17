@@ -64,4 +64,38 @@ public class RawEventsController : ControllerBase
 
         return Ok(events);
     }
+
+    /// <summary>
+    /// Deletes all rows from dbo.RawCalendarEvent (optionally filtered by account) for testing.
+    /// </summary>
+    [HttpDelete]
+    public async Task<IActionResult> DeleteAll(
+        [FromQuery] string? account = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _db.RawCalendarEvents.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalized = account.Trim();
+            query = query.Where(e => e.Account == normalized);
+        }
+
+        int deletedCount;
+        if (_db.Database.IsRelational())
+        {
+            deletedCount = await query.ExecuteDeleteAsync(cancellationToken);
+        }
+        else
+        {
+            var items = await query.ToListAsync(cancellationToken);
+            deletedCount = items.Count;
+            if (deletedCount > 0)
+            {
+                _db.RawCalendarEvents.RemoveRange(items);
+                await _db.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return Ok(new { deletedCount });
+    }
 }
