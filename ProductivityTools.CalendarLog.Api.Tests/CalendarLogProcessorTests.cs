@@ -233,6 +233,67 @@ public class CalendarLogProcessorTests
         Assert.That(withoutUncat.Days[1].ByCategory.ContainsKey("Uncategorized"), Is.False);
     }
 
+    [Test]
+    public async Task GetWeeklySummary_GroupsAcrossWeeksAndComputesIsoWeekBounds()
+    {
+        var account = "pwujczyk@google.com";
+        // 2026-11-11 is ISO week 202646; 2026-11-16 & 2026-11-17 are ISO week 202647
+        var w46Day = new DateTimeOffset(2026, 11, 11, 0, 0, 0, TimeSpan.FromHours(1));
+        var w47Day1 = new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.FromHours(1));
+        var w47Day2 = new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.FromHours(1));
+
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "DailyLog",
+            Priority = 10,
+            MatchField = CategoryMatchFields.TitlePrefix,
+            MatchValue = "Coding",
+            Category = "Coding"
+        });
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "DailyLog",
+            Priority = 20,
+            MatchField = CategoryMatchFields.TitlePrefix,
+            MatchValue = "Meetings",
+            Category = "Meetings"
+        });
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = "cal-daily",
+            CalendarName = "DailyLog",
+            RangeStart = w46Day,
+            RangeEnd = w47Day2.AddHours(23),
+            Events = new()
+            {
+                MakeEvent("w46-1", "Coding: API", w46Day.AddHours(9), 4.0),
+                MakeEvent("w47-1", "Coding: UI", w47Day1.AddHours(9), 3.5),
+                MakeEvent("w47-2", "Meetings: Planning", w47Day2.AddHours(13), 2.25)
+            }
+        });
+
+        await _processor.ProcessPendingAsync(account);
+
+        var weekly = await _processor.GetWeeklySummaryAsync(account);
+        Assert.That(weekly.Weeks, Has.Count.EqualTo(2));
+        Assert.That(weekly.Weeks[0].WeekNumber, Is.EqualTo(202647));
+        Assert.That(weekly.Weeks[0].WeekStartDay, Is.EqualTo(new DateOnly(2026, 11, 16)));
+        Assert.That(weekly.Weeks[0].WeekEndDay, Is.EqualTo(new DateOnly(2026, 11, 22)));
+        Assert.That(weekly.Weeks[0].TotalHours, Is.EqualTo(5.75m));
+        Assert.That(weekly.Weeks[0].ByCategory["Coding"], Is.EqualTo(3.50m));
+        Assert.That(weekly.Weeks[0].ByCategory["Meetings"], Is.EqualTo(2.25m));
+
+        Assert.That(weekly.Weeks[1].WeekNumber, Is.EqualTo(202646));
+        Assert.That(weekly.Weeks[1].TotalHours, Is.EqualTo(4.00m));
+
+        var logsW47 = await _processor.ListLogsAsync(account, weekNumber: 202647);
+        Assert.That(logsW47, Has.Count.EqualTo(2));
+    }
+
     private static JsonElement MakeEvent(
         string id,
         string summary,

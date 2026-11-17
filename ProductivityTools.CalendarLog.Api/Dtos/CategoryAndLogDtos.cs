@@ -70,3 +70,18 @@ public sealed class DailyCategoryBucketDto
     public decimal TotalHours { get; set; }
     public Dictionary<string, decimal> ByCategory { get; set; } = new();
 }
+
+public sealed class WeeklyCategorySummaryResponse
+{
+    public List<string> Categories { get; set; } = new();
+    public List<WeeklyCategoryBucketDto> Weeks { get; set; } = new();
+}
+
+public sealed class WeeklyCategoryBucketDto
+{
+    public int WeekNumber { get; set; }
+    public DateOnly WeekStartDay { get; set; }
+    public DateOnly WeekEndDay { get; set; }
+    public decimal TotalHours { get; set; }
+    public Dictionary<string, decimal> ByCategory { get; set; } = new();
+}

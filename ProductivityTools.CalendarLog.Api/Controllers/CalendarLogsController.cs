@@ -21,11 +21,19 @@ public class CalendarLogsController : ControllerBase
         [FromQuery] string? account = null,
         [FromQuery] DateOnly? fromDay = null,
         [FromQuery] DateOnly? toDay = null,
+        [FromQuery] int? weekNumber = null,
         [FromQuery] string? category = null,
         [FromQuery] int limit = 1000,
         CancellationToken cancellationToken = default)
     {
-        var items = await _processor.ListLogsAsync(account, fromDay, toDay, category, limit, cancellationToken);
+        var items = await _processor.ListLogsAsync(
+            account,
+            fromDay,
+            toDay,
+            category,
+            limit,
+            cancellationToken,
+            weekNumber);
         return Ok(items);
     }
 
@@ -41,6 +49,28 @@ public class CalendarLogsController : ControllerBase
             account,
             fromDay,
             toDay,
+            includeUncategorized,
+            cancellationToken);
+
+        return Ok(summary);
+    }
+
+    [HttpGet("weekly-summary")]
+    public async Task<IActionResult> GetWeeklySummary(
+        [FromQuery] string? account = null,
+        [FromQuery] DateOnly? fromDay = null,
+        [FromQuery] DateOnly? toDay = null,
+        [FromQuery] int? fromWeek = null,
+        [FromQuery] int? toWeek = null,
+        [FromQuery] bool includeUncategorized = true,
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _processor.GetWeeklySummaryAsync(
+            account,
+            fromDay,
+            toDay,
+            fromWeek,
+            toWeek,
             includeUncategorized,
             cancellationToken);
 

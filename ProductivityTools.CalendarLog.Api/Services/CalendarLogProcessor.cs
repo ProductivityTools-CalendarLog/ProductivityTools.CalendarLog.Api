@@ -162,7 +162,8 @@ public sealed class CalendarLogProcessor
         DateOnly? toDay = null,
         string? category = null,
         int limit = 1000,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int? weekNumber = null)
     {
         var cappedLimit = Math.Clamp(limit, 1, 10000);
         var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
@@ -181,6 +182,11 @@ public sealed class CalendarLogProcessor
         if (toDay.HasValue)
         {
             query = query.Where(l => l.Day <= toDay.Value);
+        }
+
+        if (weekNumber.HasValue)
+        {
+            query = query.Where(l => l.WeekNumber == weekNumber.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(category))
@@ -286,6 +292,127 @@ public sealed class CalendarLogProcessor
             Categories = categories,
             Days = days
         };
+    }
+
+    public async Task<WeeklyCategorySummaryResponse> GetWeeklySummaryAsync(
+        string? account = null,
+        DateOnly? fromDay = null,
+        DateOnly? toDay = null,
+        int? fromWeek = null,
+        int? toWeek = null,
+        bool includeUncategorized = true,
+        CancellationToken cancellationToken = default)
+    {
+        const string uncategorizedLabel = "Uncategorized";
+
+        var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalized = account.Trim();
+            query = query.Where(l => l.Account == normalized);
+        }
+
+        if (fromDay.HasValue)
+        {
+            query = query.Where(l => l.Day >= fromDay.Value);
+        }
+
+        if (toDay.HasValue)
+        {
+            query = query.Where(l => l.Day <= toDay.Value);
+        }
+
+        if (fromWeek.HasValue)
+        {
+            query = query.Where(l => l.WeekNumber >= fromWeek.Value);
+        }
+
+        if (toWeek.HasValue)
+        {
+            query = query.Where(l => l.WeekNumber <= toWeek.Value);
+        }
+
+        if (!includeUncategorized)
+        {
+            query = query.Where(l => l.Category != null && l.Category != "");
+        }
+
+        var rawGrouped = await query
+            .GroupBy(l => new { l.WeekNumber, l.Category })
+            .Select(g => new
+            {
+                g.Key.WeekNumber,
+                g.Key.Category,
+                Hours = g.Sum(x => x.DurationHours)
+            })
+            .ToListAsync(cancellationToken);
+
+        var normalizedGrouped = rawGrouped
+            .Select(g => new
+            {
+                g.WeekNumber,
+                Category = string.IsNullOrWhiteSpace(g.Category) ? uncategorizedLabel : g.Category.Trim(),
+                g.Hours
+            })
+            .ToList();
+
+        var categories = normalizedGrouped
+            .Select(g => g.Category)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var weeks = normalizedGrouped
+            .GroupBy(g => g.WeekNumber)
+            .OrderByDescending(g => g.Key)
+            .Select(weekGroup =>
+            {
+                var rawByCat = new Dictionary<string, decimal>(StringComparer.Ordinal);
+                decimal total = 0m;
+                foreach (var item in weekGroup)
+                {
+                    rawByCat[item.Category] = rawByCat.GetValueOrDefault(item.Category) + item.Hours;
+                    total += item.Hours;
+                }
+
+                var byCat = rawByCat.ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => Math.Round(kvp.Value, 2),
+                    StringComparer.Ordinal);
+
+                var (weekStart, weekEnd) = ResolveIsoWeekBounds(weekGroup.Key);
+
+                return new WeeklyCategoryBucketDto
+                {
+                    WeekNumber = weekGroup.Key,
+                    WeekStartDay = weekStart,
+                    WeekEndDay = weekEnd,
+                    TotalHours = Math.Round(total, 2),
+                    ByCategory = byCat
+                };
+            })
+            .ToList();
+
+        return new WeeklyCategorySummaryResponse
+        {
+            Categories = categories,
+            Weeks = weeks
+        };
+    }
+
+    private static (DateOnly Start, DateOnly End) ResolveIsoWeekBounds(int weekNumber)
+    {
+        var year = weekNumber / 100;
+        var week = weekNumber % 100;
+        if (year >= 1970 && year <= 9998 && week >= 1 && week <= ISOWeek.GetWeeksInYear(year))
+        {
+            var monday = DateOnly.FromDateTime(ISOWeek.ToDateTime(year, week, DayOfWeek.Monday));
+            var sunday = monday.AddDays(6);
+            return (monday, sunday);
+        }
+
+        return (DateOnly.MinValue, DateOnly.MinValue);
     }
 
     private async Task<ReprocessCalendarLogsResult> EvaluateAndPersistAsync(
