@@ -29,6 +29,24 @@ public class CalendarLogsController : ControllerBase
         return Ok(items);
     }
 
+    [HttpGet("daily-summary")]
+    public async Task<IActionResult> GetDailySummary(
+        [FromQuery] string? account = null,
+        [FromQuery] DateOnly? fromDay = null,
+        [FromQuery] DateOnly? toDay = null,
+        [FromQuery] bool includeUncategorized = true,
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _processor.GetDailySummaryAsync(
+            account,
+            fromDay,
+            toDay,
+            includeUncategorized,
+            cancellationToken);
+
+        return Ok(summary);
+    }
+
     [HttpPost("reprocess")]
     public async Task<IActionResult> Reprocess(
         [FromQuery] string? account = null,

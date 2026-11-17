@@ -172,6 +172,65 @@ public class CalendarLogProcessorTests
 
         var updatedLogs = await _processor.ListLogsAsync(account);
         Assert.That(updatedLogs.Single(l => l.Title == "Deep coding").Category, Is.EqualTo("Coding"));
+
+        var dailySummary = await _processor.GetDailySummaryAsync(account);
+        Assert.That(dailySummary.Days, Has.Count.EqualTo(1));
+        Assert.That(dailySummary.Days[0].Day, Is.EqualTo(new DateOnly(2026, 11, 17)));
+        Assert.That(dailySummary.Days[0].TotalHours, Is.EqualTo(4.00m));
+        Assert.That(dailySummary.Days[0].ByCategory["Coding"], Is.EqualTo(1.50m));
+        Assert.That(dailySummary.Days[0].ByCategory["SelfDevelopment"], Is.EqualTo(1.25m));
+        Assert.That(dailySummary.Days[0].ByCategory["Meetings"], Is.EqualTo(0.75m));
+        Assert.That(dailySummary.Days[0].ByCategory["Lunch"], Is.EqualTo(0.50m));
+    }
+
+    [Test]
+    public async Task GetDailySummary_GroupsMultipleDaysAndHandlesUncategorizedFilter()
+    {
+        var account = "pwujczyk@google.com";
+        var day1 = new DateTimeOffset(2026, 11, 16, 0, 0, 0, TimeSpan.FromHours(1));
+        var day2 = new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.FromHours(1));
+
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "DailyLog",
+            Priority = 10,
+            MatchField = CategoryMatchFields.TitlePrefix,
+            MatchValue = "Coding",
+            Category = "Coding"
+        });
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = "cal-daily",
+            CalendarName = "DailyLog",
+            RangeStart = day1,
+            RangeEnd = day2.AddHours(23),
+            Events = new()
+            {
+                MakeEvent("d1-code", "Coding: Feature A", day1.AddHours(10), 2.5),
+                MakeEvent("d1-uncat", "Mystery task", day1.AddHours(14), 1.0),
+                MakeEvent("d2-code", "Coding: Feature B", day2.AddHours(9), 3.25)
+            }
+        });
+
+        await _processor.ProcessPendingAsync(account);
+
+        var withUncat = await _processor.GetDailySummaryAsync(account, includeUncategorized: true);
+        Assert.That(withUncat.Days, Has.Count.EqualTo(2));
+        // Ordered newest day first:
+        Assert.That(withUncat.Days[0].Day, Is.EqualTo(new DateOnly(2026, 11, 17)));
+        Assert.That(withUncat.Days[0].TotalHours, Is.EqualTo(3.25m));
+        Assert.That(withUncat.Days[1].Day, Is.EqualTo(new DateOnly(2026, 11, 16)));
+        Assert.That(withUncat.Days[1].TotalHours, Is.EqualTo(3.50m));
+        Assert.That(withUncat.Days[1].ByCategory["Coding"], Is.EqualTo(2.50m));
+        Assert.That(withUncat.Days[1].ByCategory["Uncategorized"], Is.EqualTo(1.00m));
+
+        var withoutUncat = await _processor.GetDailySummaryAsync(account, includeUncategorized: false);
+        Assert.That(withoutUncat.Categories, Does.Not.Contain("Uncategorized"));
+        Assert.That(withoutUncat.Days[1].TotalHours, Is.EqualTo(2.50m));
+        Assert.That(withoutUncat.Days[1].ByCategory.ContainsKey("Uncategorized"), Is.False);
     }
 
     private static JsonElement MakeEvent(

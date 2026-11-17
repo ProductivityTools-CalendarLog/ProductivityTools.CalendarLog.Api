@@ -197,6 +197,97 @@ public sealed class CalendarLogProcessor
         return items.Select(MapToDto).ToList();
     }
 
+    public async Task<DailyCategorySummaryResponse> GetDailySummaryAsync(
+        string? account = null,
+        DateOnly? fromDay = null,
+        DateOnly? toDay = null,
+        bool includeUncategorized = true,
+        CancellationToken cancellationToken = default)
+    {
+        const string uncategorizedLabel = "Uncategorized";
+
+        var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalized = account.Trim();
+            query = query.Where(l => l.Account == normalized);
+        }
+
+        if (fromDay.HasValue)
+        {
+            query = query.Where(l => l.Day >= fromDay.Value);
+        }
+
+        if (toDay.HasValue)
+        {
+            query = query.Where(l => l.Day <= toDay.Value);
+        }
+
+        if (!includeUncategorized)
+        {
+            query = query.Where(l => l.Category != null && l.Category != "");
+        }
+
+        var rawGrouped = await query
+            .GroupBy(l => new { l.Day, l.Category })
+            .Select(g => new
+            {
+                g.Key.Day,
+                g.Key.Category,
+                Hours = g.Sum(x => x.DurationHours)
+            })
+            .ToListAsync(cancellationToken);
+
+        var normalizedGrouped = rawGrouped
+            .Select(g => new
+            {
+                g.Day,
+                Category = string.IsNullOrWhiteSpace(g.Category) ? uncategorizedLabel : g.Category.Trim(),
+                g.Hours
+            })
+            .ToList();
+
+        var categories = normalizedGrouped
+            .Select(g => g.Category)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var days = normalizedGrouped
+            .GroupBy(g => g.Day)
+            .OrderByDescending(g => g.Key)
+            .Select(dayGroup =>
+            {
+                var rawByCat = new Dictionary<string, decimal>(StringComparer.Ordinal);
+                decimal total = 0m;
+                foreach (var item in dayGroup)
+                {
+                    rawByCat[item.Category] = rawByCat.GetValueOrDefault(item.Category) + item.Hours;
+                    total += item.Hours;
+                }
+
+                var byCat = rawByCat.ToDictionary(
+                    kvp => kvp.Key,
+                    kvp => Math.Round(kvp.Value, 2),
+                    StringComparer.Ordinal);
+
+                return new DailyCategoryBucketDto
+                {
+                    Day = dayGroup.Key,
+                    TotalHours = Math.Round(total, 2),
+                    ByCategory = byCat
+                };
+            })
+            .ToList();
+
+        return new DailyCategorySummaryResponse
+        {
+            Categories = categories,
+            Days = days
+        };
+    }
+
     private async Task<ReprocessCalendarLogsResult> EvaluateAndPersistAsync(
         List<RawCalendarEvent> rawEvents,
         CancellationToken cancellationToken)

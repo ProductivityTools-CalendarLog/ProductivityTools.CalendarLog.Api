@@ -57,3 +57,16 @@ public sealed class ReprocessCalendarLogsResult
     public int LogsUpserted { get; set; }
     public int LogsRemovedOrSkipped { get; set; }
 }
+
+public sealed class DailyCategorySummaryResponse
+{
+    public List<string> Categories { get; set; } = new();
+    public List<DailyCategoryBucketDto> Days { get; set; } = new();
+}
+
+public sealed class DailyCategoryBucketDto
+{
+    public DateOnly Day { get; set; }
+    public decimal TotalHours { get; set; }
+    public Dictionary<string, decimal> ByCategory { get; set; } = new();
+}
