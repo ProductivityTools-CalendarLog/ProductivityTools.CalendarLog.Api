@@ -53,7 +53,28 @@ public class MutationRulesController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("convert/{id:int}")]
+    public async Task<IActionResult> UpdateConvertRule(
+        int id,
+        [FromBody] UpsertConvertRuleRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _planner.UpdateConvertRuleAsync(id, request, cancellationToken);
+            return updated == null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 
@@ -113,7 +134,28 @@ public class MutationRulesController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("title-rename/{id:int}")]
+    public async Task<IActionResult> UpdateTitleRenameRule(
+        int id,
+        [FromBody] UpsertTitleRenameRuleRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _planner.UpdateTitleRenameRuleAsync(id, request, cancellationToken);
+            return updated == null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 

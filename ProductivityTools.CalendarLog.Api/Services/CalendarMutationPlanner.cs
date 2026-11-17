@@ -132,6 +132,55 @@ public sealed class CalendarMutationPlanner
         return rule;
     }
 
+    public async Task<CalendarConvertRule?> UpdateConvertRuleAsync(
+        int id,
+        UpsertConvertRuleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var account = request.Account.Trim();
+        var keyPrefix = NormalizeConvertKey(request.KeyPrefix);
+        var targetCalendarId = request.TargetCalendarId.Trim();
+
+        if (string.IsNullOrEmpty(account))
+        {
+            throw new ArgumentException("Account must not be empty.");
+        }
+        if (string.IsNullOrEmpty(keyPrefix))
+        {
+            throw new ArgumentException("KeyPrefix must contain at least one non-whitespace character after optional '#'.");
+        }
+        if (string.IsNullOrEmpty(targetCalendarId))
+        {
+            throw new ArgumentException("TargetCalendarId must not be empty.");
+        }
+
+        var rule = await _db.CalendarConvertRules
+            .SingleOrDefaultAsync(r => r.CalendarConvertRuleId == id, cancellationToken);
+
+        if (rule == null)
+        {
+            return null;
+        }
+
+        var duplicate = await _db.CalendarConvertRules.AnyAsync(
+            r => r.CalendarConvertRuleId != id && r.Account == account && r.KeyPrefix == keyPrefix,
+            cancellationToken);
+
+        if (duplicate)
+        {
+            throw new InvalidOperationException($"Convert rule '#{keyPrefix}' already exists for account '{account}'.");
+        }
+
+        rule.Account = account;
+        rule.KeyPrefix = keyPrefix;
+        rule.TargetCalendarId = targetCalendarId;
+        rule.IsActive = request.IsActive;
+        rule.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return rule;
+    }
+
     public async Task<CalendarTitleRenameRule> UpsertTitleRenameRuleAsync(
         UpsertTitleRenameRuleRequest request,
         CancellationToken cancellationToken = default)
@@ -177,6 +226,64 @@ public sealed class CalendarMutationPlanner
             rule.IsActive = request.IsActive;
             rule.UpdatedAtUtc = nowUtc;
         }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return rule;
+    }
+
+    public async Task<CalendarTitleRenameRule?> UpdateTitleRenameRuleAsync(
+        int id,
+        UpsertTitleRenameRuleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var account = request.Account.Trim();
+        var calendarId = request.CalendarId.Trim();
+        var keyPrefix = NormalizeRenameKey(request.KeyPrefix);
+        var targetPrefix = request.TargetPrefix.Trim();
+
+        if (string.IsNullOrEmpty(account))
+        {
+            throw new ArgumentException("Account must not be empty.");
+        }
+        if (string.IsNullOrEmpty(calendarId))
+        {
+            throw new ArgumentException("CalendarId must not be empty.");
+        }
+        if (string.IsNullOrEmpty(keyPrefix))
+        {
+            throw new ArgumentException("KeyPrefix must not be empty.");
+        }
+        if (string.IsNullOrEmpty(targetPrefix))
+        {
+            throw new ArgumentException("TargetPrefix must not be empty.");
+        }
+
+        var rule = await _db.CalendarTitleRenameRules
+            .SingleOrDefaultAsync(r => r.CalendarTitleRenameRuleId == id, cancellationToken);
+
+        if (rule == null)
+        {
+            return null;
+        }
+
+        var duplicate = await _db.CalendarTitleRenameRules.AnyAsync(
+            r => r.CalendarTitleRenameRuleId != id
+                && r.Account == account
+                && r.CalendarId == calendarId
+                && r.KeyPrefix == keyPrefix,
+            cancellationToken);
+
+        if (duplicate)
+        {
+            throw new InvalidOperationException($"Title rename rule '{keyPrefix}' already exists for calendar '{calendarId}'.");
+        }
+
+        rule.Account = account;
+        rule.CalendarId = calendarId;
+        rule.KeyPrefix = keyPrefix;
+        rule.TargetPrefix = targetPrefix;
+        rule.IsActive = request.IsActive;
+        rule.UpdatedAtUtc = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(cancellationToken);
         return rule;

@@ -626,6 +626,71 @@ public class RawEventSyncServiceTests
         Assert.That(plan.Calendars[0].EndDate, Is.EqualTo(today));
     }
 
+    [Test]
+    public async Task MutationPlanner_UpdateRules_UpdatesFieldsAndRejectsDuplicates()
+    {
+        var c1 = await _mutationPlanner.UpsertConvertRuleAsync(new UpsertConvertRuleRequest
+        {
+            Account = "pwujczyk@google.com",
+            KeyPrefix = "#dl",
+            TargetCalendarId = "cal-1"
+        });
+        await _mutationPlanner.UpsertConvertRuleAsync(new UpsertConvertRuleRequest
+        {
+            Account = "pwujczyk@google.com",
+            KeyPrefix = "work",
+            TargetCalendarId = "cal-2"
+        });
+
+        var updatedConvert = await _mutationPlanner.UpdateConvertRuleAsync(
+            c1.CalendarConvertRuleId,
+            new UpsertConvertRuleRequest
+            {
+                Account = "pwujczyk@google.com",
+                KeyPrefix = "daily",
+                TargetCalendarId = "cal-daily",
+                IsActive = false
+            });
+
+        Assert.That(updatedConvert, Is.Not.Null);
+        Assert.That(updatedConvert!.KeyPrefix, Is.EqualTo("daily"));
+        Assert.That(updatedConvert.TargetCalendarId, Is.EqualTo("cal-daily"));
+        Assert.That(updatedConvert.IsActive, Is.False);
+
+        Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _mutationPlanner.UpdateConvertRuleAsync(
+                c1.CalendarConvertRuleId,
+                new UpsertConvertRuleRequest
+                {
+                    Account = "pwujczyk@google.com",
+                    KeyPrefix = "work",
+                    TargetCalendarId = "cal-daily"
+                }));
+
+        var r1 = await _mutationPlanner.UpsertTitleRenameRuleAsync(new UpsertTitleRenameRuleRequest
+        {
+            Account = "pwujczyk@google.com",
+            CalendarId = "*",
+            KeyPrefix = "sd",
+            TargetPrefix = "SelfDev"
+        });
+
+        var updatedRename = await _mutationPlanner.UpdateTitleRenameRuleAsync(
+            r1.CalendarTitleRenameRuleId,
+            new UpsertTitleRenameRuleRequest
+            {
+                Account = "pwujczyk@google.com",
+                CalendarId = "cal-daily",
+                KeyPrefix = "sd",
+                TargetPrefix = "SelfDevelopment",
+                IsActive = true
+            });
+
+        Assert.That(updatedRename, Is.Not.Null);
+        Assert.That(updatedRename!.CalendarId, Is.EqualTo("cal-daily"));
+        Assert.That(updatedRename.TargetPrefix, Is.EqualTo("SelfDevelopment"));
+    }
+
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>
         JsonSerializer.SerializeToElement(new
         {
