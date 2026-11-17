@@ -29,7 +29,7 @@ public sealed class CreateCalendarRequest
 
     public bool IsActive { get; set; } = true;
 
-    [Range(1, 3650)]
+    [Range(0, 3650)]
     public int? DefaultLookbackDays { get; set; }
 
     public DateOnly? PendingBackfillFrom { get; set; }
@@ -47,7 +47,7 @@ public sealed class UpdateCalendarRequest
 
     public bool IsActive { get; set; } = true;
 
-    [Range(1, 3650)]
+    [Range(0, 3650)]
     public int DefaultLookbackDays { get; set; } = 14;
 
     public DateOnly? PendingBackfillFrom { get; set; }

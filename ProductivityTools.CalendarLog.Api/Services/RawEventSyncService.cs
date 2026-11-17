@@ -15,7 +15,6 @@ public sealed class RawEventSyncService
     private readonly CalendarLogContext _db;
     private readonly CalendarMutationPlanner _mutationPlanner;
     private readonly int _defaultLookbackDays;
-    private readonly bool _todayOnly;
     private readonly TimeZoneInfo _timeZone;
 
     public RawEventSyncService(
@@ -26,7 +25,6 @@ public sealed class RawEventSyncService
         _db = db;
         _mutationPlanner = mutationPlanner;
         _defaultLookbackDays = Math.Max(0, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
-        _todayOnly = configuration.GetValue<bool>("Sync:TodayOnly");
         var tzId = configuration["Sync:TimeZone"] ?? "Europe/Warsaw";
         _timeZone = ResolveTimeZone(tzId);
     }
@@ -50,29 +48,21 @@ public sealed class RawEventSyncService
 
         foreach (var state in states)
         {
-            DateOnly start;
-            if (_todayOnly)
+            var lookbackDays = state.DefaultLookbackDays >= 0 ? state.DefaultLookbackDays : _defaultLookbackDays;
+            var start = today.AddDays(-lookbackDays);
+
+            if (lookbackDays > 0 && state.LastSyncedDate.HasValue)
             {
-                start = today;
+                var catchupStart = state.LastSyncedDate.Value.AddDays(-1);
+                if (catchupStart < start)
+                {
+                    start = catchupStart;
+                }
             }
-            else
+
+            if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
             {
-                var lookbackDays = state.DefaultLookbackDays > 0 ? state.DefaultLookbackDays : _defaultLookbackDays;
-                start = today.AddDays(-lookbackDays);
-
-                if (state.LastSyncedDate.HasValue)
-                {
-                    var catchupStart = state.LastSyncedDate.Value.AddDays(-1);
-                    if (catchupStart < start)
-                    {
-                        start = catchupStart;
-                    }
-                }
-
-                if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
-                {
-                    start = state.PendingBackfillFrom.Value;
-                }
+                start = state.PendingBackfillFrom.Value;
             }
 
             if (overallStart == null || start < overallStart.Value)
@@ -94,10 +84,9 @@ public sealed class RawEventSyncService
         return new SyncPlanResponse
         {
             Account = normalizedAccount,
-            StartDate = overallStart ?? (_todayOnly ? today : today.AddDays(-_defaultLookbackDays)),
+            StartDate = overallStart ?? today.AddDays(-_defaultLookbackDays),
             EndDate = today,
             DefaultLookbackDays = _defaultLookbackDays,
-            TodayOnly = _todayOnly,
             Calendars = calendarItems
         };
     }
@@ -408,7 +397,7 @@ public sealed class RawEventSyncService
                 CalendarId = calendarId,
                 CalendarName = request.CalendarName?.Trim(),
                 IsActive = request.IsActive,
-                DefaultLookbackDays = request.DefaultLookbackDays is > 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
+                DefaultLookbackDays = request.DefaultLookbackDays is >= 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
                 PendingBackfillFrom = request.PendingBackfillFrom,
                 CreatedAtUtc = nowUtc,
                 UpdatedAtUtc = nowUtc
@@ -422,7 +411,7 @@ public sealed class RawEventSyncService
                 state.CalendarName = request.CalendarName.Trim();
             }
             state.IsActive = request.IsActive;
-            if (request.DefaultLookbackDays is > 0)
+            if (request.DefaultLookbackDays is >= 0)
             {
                 state.DefaultLookbackDays = request.DefaultLookbackDays.Value;
             }

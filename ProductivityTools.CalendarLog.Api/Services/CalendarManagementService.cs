@@ -21,7 +21,7 @@ public sealed class CalendarManagementService
     public CalendarManagementService(CalendarLogContext db, IConfiguration configuration)
     {
         _db = db;
-        _defaultLookbackDays = Math.Max(1, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
+        _defaultLookbackDays = Math.Max(0, configuration.GetValue<int?>("Sync:DefaultLookbackDays") ?? 14);
     }
 
     public async Task<List<CalendarItemDto>> ListAsync(
@@ -88,7 +88,7 @@ public sealed class CalendarManagementService
             CalendarId = calendarId,
             CalendarName = calendarName,
             IsActive = request.IsActive,
-            DefaultLookbackDays = request.DefaultLookbackDays is > 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
+            DefaultLookbackDays = request.DefaultLookbackDays is >= 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
             PendingBackfillFrom = request.PendingBackfillFrom,
             CreatedAtUtc = nowUtc,
             UpdatedAtUtc = nowUtc
@@ -141,7 +141,7 @@ public sealed class CalendarManagementService
         entity.CalendarId = calendarId;
         entity.CalendarName = calendarName;
         entity.IsActive = request.IsActive;
-        entity.DefaultLookbackDays = request.DefaultLookbackDays > 0 ? request.DefaultLookbackDays : _defaultLookbackDays;
+        entity.DefaultLookbackDays = request.DefaultLookbackDays >= 0 ? request.DefaultLookbackDays : _defaultLookbackDays;
         entity.PendingBackfillFrom = request.PendingBackfillFrom;
         entity.UpdatedAtUtc = DateTime.UtcNow;
 

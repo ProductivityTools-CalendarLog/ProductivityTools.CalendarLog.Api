@@ -597,7 +597,7 @@ public class RawEventSyncServiceTests
     }
 
     [Test]
-    public async Task GetSyncPlan_WhenTodayOnlyEnabled_ReturnsTodayStartAndEndForAllCalendars()
+    public async Task GetSyncPlan_WithZeroLookbackDays_ReturnsTodayStartAndEnd()
     {
         var today = new DateOnly(2026, 11, 17);
 
@@ -607,26 +607,13 @@ public class RawEventSyncServiceTests
             CalendarId = "cal-1",
             CalendarName = "DailyLog",
             IsActive = true,
-            DefaultLookbackDays = 14,
-            LastSyncedDate = new DateOnly(2026, 10, 1),
-            PendingBackfillFrom = new DateOnly(2026, 8, 1)
+            DefaultLookbackDays = 0,
+            LastSyncedDate = today
         });
         await _db.SaveChangesAsync();
 
-        var todayOnlyConfig = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Sync:DefaultLookbackDays"] = "14",
-                ["Sync:TodayOnly"] = "true",
-                ["Sync:TimeZone"] = "Europe/Warsaw"
-            })
-            .Build();
+        var plan = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
 
-        var todayOnlyService = new RawEventSyncService(_db, todayOnlyConfig, _mutationPlanner);
-
-        var plan = await todayOnlyService.GetSyncPlanAsync("pwujczyk@google.com", today);
-
-        Assert.That(plan.TodayOnly, Is.True);
         Assert.That(plan.StartDate, Is.EqualTo(today));
         Assert.That(plan.EndDate, Is.EqualTo(today));
         Assert.That(plan.Calendars, Has.Count.EqualTo(1));
