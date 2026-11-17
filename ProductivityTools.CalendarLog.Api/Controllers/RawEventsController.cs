@@ -91,6 +91,11 @@ public class RawEventsController : ControllerBase
             deletedCount = items.Count;
             if (deletedCount > 0)
             {
+                var ids = items.Select(i => i.RawCalendarEventId).ToHashSet();
+                var linkedLogs = await _db.CalendarLogs
+                    .Where(l => l.RawCalendarEventId.HasValue && ids.Contains(l.RawCalendarEventId.Value))
+                    .ToListAsync(cancellationToken);
+                _db.CalendarLogs.RemoveRange(linkedLogs);
                 _db.RawCalendarEvents.RemoveRange(items);
                 await _db.SaveChangesAsync(cancellationToken);
             }

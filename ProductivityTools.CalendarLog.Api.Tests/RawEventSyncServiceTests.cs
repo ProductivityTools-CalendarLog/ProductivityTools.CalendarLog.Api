@@ -348,6 +348,7 @@ public class RawEventSyncServiceTests
 
         Assert.That(resources, Has.Some.EndsWith("Script0001-CreateRawCalendarEventsTables.sql"));
         Assert.That(resources, Has.Some.EndsWith("Script0002-CreateCalendarMutationRuleTables.sql"));
+        Assert.That(resources, Has.Some.EndsWith("Script0003-CreateCalendarCategoryAndLogTables.sql"));
     }
 
     [Test]

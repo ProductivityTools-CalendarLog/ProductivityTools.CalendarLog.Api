@@ -56,6 +56,7 @@ builder.Services.AddDbContext<CalendarLogContext>(options =>
 
 builder.Services.AddScoped<CalendarMutationPlanner>();
 builder.Services.AddScoped<CalendarManagementService>();
+builder.Services.AddScoped<CalendarLogProcessor>();
 builder.Services.AddScoped<RawEventSyncService>();
 
 builder.Services.AddAuthentication(options =>

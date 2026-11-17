@@ -13,6 +13,8 @@ public class CalendarLogContext : DbContext
     public DbSet<CalendarSyncState> CalendarSyncStates => Set<CalendarSyncState>();
     public DbSet<CalendarConvertRule> CalendarConvertRules => Set<CalendarConvertRule>();
     public DbSet<CalendarTitleRenameRule> CalendarTitleRenameRules => Set<CalendarTitleRenameRule>();
+    public DbSet<CalendarCategoryRule> CalendarCategoryRules => Set<CalendarCategoryRule>();
+    public DbSet<CalendarLogEntry> CalendarLogs => Set<CalendarLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +88,56 @@ public class CalendarLogContext : DbContext
             entity.HasIndex(e => new { e.Account, e.CalendarId, e.KeyPrefix })
                 .IsUnique()
                 .HasDatabaseName("UQ_CalendarTitleRenameRule_Account_Calendar_KeyPrefix");
+        });
+
+        modelBuilder.Entity<CalendarCategoryRule>(entity =>
+        {
+            entity.ToTable("CalendarCategoryRule", "dbo");
+            entity.HasKey(e => e.CalendarCategoryRuleId);
+
+            entity.Property(e => e.Account).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.CalendarId).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.MatchField).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.MatchValue).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Category).HasMaxLength(255).IsRequired();
+
+            entity.HasIndex(e => new { e.Account, e.Priority, e.CalendarCategoryRuleId })
+                .HasDatabaseName("IX_CalendarCategoryRule_Account_Priority");
+        });
+
+        modelBuilder.Entity<CalendarLogEntry>(entity =>
+        {
+            entity.ToTable("CalendarLog", "dbo");
+            entity.HasKey(e => e.CalendarLogId);
+
+            entity.Property(e => e.Source).HasMaxLength(32).IsRequired();
+            entity.Property(e => e.Account).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.CalendarId).HasMaxLength(255);
+            entity.Property(e => e.CalendarName).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.Month).HasMaxLength(7).IsRequired();
+            entity.Property(e => e.DurationHours).HasPrecision(10, 4);
+            entity.Property(e => e.Title).HasMaxLength(1000);
+            entity.Property(e => e.MyStatus).HasMaxLength(50);
+            entity.Property(e => e.EventType).HasMaxLength(50);
+            entity.Property(e => e.Color).HasMaxLength(50);
+            entity.Property(e => e.Category).HasMaxLength(255);
+            entity.Property(e => e.Value).HasMaxLength(500);
+
+            entity.HasOne(e => e.RawCalendarEvent)
+                .WithMany()
+                .HasForeignKey(e => e.RawCalendarEventId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.RawCalendarEventId)
+                .IsUnique()
+                .HasFilter("[RawCalendarEventId] IS NOT NULL")
+                .HasDatabaseName("UQ_CalendarLog_RawCalendarEventId");
+
+            entity.HasIndex(e => new { e.Account, e.Day })
+                .HasDatabaseName("IX_CalendarLog_Account_Day");
+
+            entity.HasIndex(e => new { e.Account, e.WeekNumber })
+                .HasDatabaseName("IX_CalendarLog_Account_WeekNumber");
         });
 
         base.OnModelCreating(modelBuilder);

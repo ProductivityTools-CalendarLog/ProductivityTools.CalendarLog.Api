@@ -12,11 +12,16 @@ namespace ProductivityTools.CalendarLog.Api.Controllers;
 public class SyncController : ControllerBase
 {
     private readonly RawEventSyncService _syncService;
+    private readonly CalendarLogProcessor _logProcessor;
     private readonly CalendarLogContext _db;
 
-    public SyncController(RawEventSyncService syncService, CalendarLogContext db)
+    public SyncController(
+        RawEventSyncService syncService,
+        CalendarLogProcessor logProcessor,
+        CalendarLogContext db)
     {
         _syncService = syncService;
+        _logProcessor = logProcessor;
         _db = db;
     }
 
@@ -55,6 +60,7 @@ public class SyncController : ControllerBase
         }
 
         var result = await _syncService.IngestRawEventsAsync(request, cancellationToken);
+        await _logProcessor.ProcessPendingAsync(result.Account, cancellationToken);
         return Accepted(result);
     }
 
