@@ -22,10 +22,12 @@ public sealed class CalendarMutationPlanner
         string account,
         string sourceCalendarId,
         IEnumerable<EventMutationCandidate> candidates,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? sourceCalendarName = null)
     {
         var normalizedAccount = account.Trim();
         var normalizedSourceCalendarId = sourceCalendarId.Trim();
+        var normalizedSourceCalendarName = sourceCalendarName?.Trim();
 
         var convertRules = await _db.CalendarConvertRules
             .AsNoTracking()
@@ -53,7 +55,7 @@ public sealed class CalendarMutationPlanner
             }
         }
 
-        var renameByCalendar = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+        var renameByCalendar = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var rule in renameRules)
         {
             var calId = rule.CalendarId.Trim();
@@ -77,6 +79,7 @@ public sealed class CalendarMutationPlanner
         {
             var command = PlanSingle(
                 normalizedSourceCalendarId,
+                normalizedSourceCalendarName,
                 candidate.ExternalEventId,
                 candidate.Title,
                 convertByKey,
@@ -291,6 +294,7 @@ public sealed class CalendarMutationPlanner
 
     private static CalendarMutationCommand? PlanSingle(
         string sourceCalendarId,
+        string? sourceCalendarName,
         string externalEventId,
         string? title,
         IReadOnlyDictionary<string, string> convertByKey,
@@ -323,8 +327,8 @@ public sealed class CalendarMutationPlanner
 
             if (!string.IsNullOrEmpty(rawKey) && convertByKey.TryGetValue(rawKey, out var targetCalendarId))
             {
-                // Chain target calendar's title rename rules so "#DL sd: reading" moves directly as "SelfDevelopment: reading".
-                var finalTitle = TryApplyTitleRename(strippedTitle, targetCalendarId, renameByCalendar) ?? strippedTitle;
+                // Chain target calendar's title rename rules so "#DL sd: reading" moves directly as "Self Development: reading".
+                var finalTitle = TryApplyTitleRename(strippedTitle, targetCalendarId, null, renameByCalendar) ?? strippedTitle;
 
                 if (!string.Equals(targetCalendarId, sourceCalendarId, StringComparison.Ordinal))
                 {
@@ -354,7 +358,7 @@ public sealed class CalendarMutationPlanner
         }
 
         // 2. Check prefix-before-colon title normalization rules (replaces Analysis.js ReplaceTitleWithCategory).
-        var renamedTitle = TryApplyTitleRename(title, sourceCalendarId, renameByCalendar);
+        var renamedTitle = TryApplyTitleRename(title, sourceCalendarId, sourceCalendarName, renameByCalendar);
         if (renamedTitle != null)
         {
             return new CalendarMutationCommand
@@ -372,6 +376,7 @@ public sealed class CalendarMutationPlanner
     private static string? TryApplyTitleRename(
         string title,
         string calendarId,
+        string? calendarName,
         IReadOnlyDictionary<string, Dictionary<string, string>> renameByCalendar)
     {
         if (renameByCalendar.Count == 0)
@@ -394,6 +399,12 @@ public sealed class CalendarMutationPlanner
             && specificRules.TryGetValue(rawKey, out var specificTarget))
         {
             targetPrefix = specificTarget;
+        }
+        else if (!string.IsNullOrEmpty(calendarName)
+            && renameByCalendar.TryGetValue(calendarName, out var namedRules)
+            && namedRules.TryGetValue(rawKey, out var namedTarget))
+        {
+            targetPrefix = namedTarget;
         }
         else if (renameByCalendar.TryGetValue(WildcardCalendarId, out var wildcardRules)
             && wildcardRules.TryGetValue(rawKey, out var wildcardTarget))

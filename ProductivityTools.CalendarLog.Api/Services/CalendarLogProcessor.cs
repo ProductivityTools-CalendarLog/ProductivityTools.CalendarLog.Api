@@ -34,22 +34,22 @@ public sealed class CalendarLogProcessor
         "OWNER"
     };
 
-    // Exact bottom-to-top stacked chart series order and colors from the PT.Calendar spreadsheet:
+    // Default bottom-to-top stacked chart series order and colors (with spaced display names):
     public static readonly IReadOnlyList<(string Category, int SortOrder, string Color)> DefaultSpreadsheetCategories =
         new List<(string, int, string)>
         {
-            ("OOO",                   10,  "#4285f4"),
-            ("Meetings",              20,  "#a4c2f4"),
-            ("One2One",               30,  "#c9daf8"),
-            ("Hanging-out",           40,  "#ea9999"),
-            ("TopDown",               50,  "#ff6d01"),
-            ("Emails",                60,  "#f9cb9c"),
-            ("Operations",            70,  "#ffe599"),
-            ("IndividualProjectWork", 80,  "#d9ead3"),
-            ("FocusedWork",           90,  "#b6d7a8"),
-            ("Journal",               100, "#93c47d"),
-            ("Coding",                110, "#6aa84f"),
-            ("SelfDevelopment",       120, "#38761d")
+            ("OOO",                     10,  "#4285f4"),
+            ("Meetings",                20,  "#a4c2f4"),
+            ("One2One",                 30,  "#c9daf8"),
+            ("Hanging-out",             40,  "#ea9999"),
+            ("TopDown",                 50,  "#ff6d01"),
+            ("Emails",                  60,  "#f9cb9c"),
+            ("Operations",              70,  "#ffe599"),
+            ("Individual Project Work", 80,  "#d9ead3"),
+            ("Focused Work",            90,  "#b6d7a8"),
+            ("Journal",                 100, "#93c47d"),
+            ("Coding",                  110, "#6aa84f"),
+            ("Self Development",        120, "#38761d")
         };
 
     private readonly CalendarLogContext _db;
@@ -215,12 +215,12 @@ public sealed class CalendarLogProcessor
         CancellationToken cancellationToken = default)
     {
         var existing = await _db.CalendarCategories.ToListAsync(cancellationToken);
-        var byName = existing.ToDictionary(c => c.Category, StringComparer.OrdinalIgnoreCase);
+        var byLooseName = existing.ToDictionary(c => NormalizeLooseKey(c.Category), StringComparer.Ordinal);
         var nowUtc = DateTime.UtcNow;
 
         foreach (var (name, sortOrder, color) in DefaultSpreadsheetCategories)
         {
-            if (byName.TryGetValue(name, out var entity))
+            if (byLooseName.TryGetValue(NormalizeLooseKey(name), out var entity))
             {
                 entity.Category = name;
                 entity.SortOrder = sortOrder;
@@ -458,10 +458,8 @@ public sealed class CalendarLogProcessor
         }
 
         var categoryConfigs = await ListCategoriesAsync(cancellationToken);
-        var canonicalByLower = categoryConfigs
-            .ToDictionary(c => c.Category.ToLowerInvariant(), c => c.Category, StringComparer.Ordinal);
-        var sortOrderByCat = categoryConfigs
-            .ToDictionary(c => c.Category, c => c.SortOrder, StringComparer.OrdinalIgnoreCase);
+        var canonicalByLooseKey = BuildCanonicalCategoryMap(categoryConfigs);
+        var sortOrderByLooseKey = BuildSortOrderMap(categoryConfigs);
 
         var rawGrouped = await query
             .GroupBy(l => new { l.Day, l.Category })
@@ -477,14 +475,14 @@ public sealed class CalendarLogProcessor
             .Select(g => new
             {
                 g.Day,
-                Category = CanonicalizeCategoryLabel(g.Category, canonicalByLower, uncategorizedLabel),
+                Category = CanonicalizeCategoryLabel(g.Category, canonicalByLooseKey, uncategorizedLabel),
                 g.Hours
             })
             .ToList();
 
         var categories = OrderSummaryCategories(
             normalizedGrouped.Select(g => g.Category),
-            sortOrderByCat,
+            sortOrderByLooseKey,
             uncategorizedLabel);
 
         var days = normalizedGrouped
@@ -567,10 +565,8 @@ public sealed class CalendarLogProcessor
         }
 
         var categoryConfigs = await ListCategoriesAsync(cancellationToken);
-        var canonicalByLower = categoryConfigs
-            .ToDictionary(c => c.Category.ToLowerInvariant(), c => c.Category, StringComparer.Ordinal);
-        var sortOrderByCat = categoryConfigs
-            .ToDictionary(c => c.Category, c => c.SortOrder, StringComparer.OrdinalIgnoreCase);
+        var canonicalByLooseKey = BuildCanonicalCategoryMap(categoryConfigs);
+        var sortOrderByLooseKey = BuildSortOrderMap(categoryConfigs);
 
         var rawGrouped = await query
             .GroupBy(l => new { l.WeekNumber, l.Category })
@@ -586,14 +582,14 @@ public sealed class CalendarLogProcessor
             .Select(g => new
             {
                 g.WeekNumber,
-                Category = CanonicalizeCategoryLabel(g.Category, canonicalByLower, uncategorizedLabel),
+                Category = CanonicalizeCategoryLabel(g.Category, canonicalByLooseKey, uncategorizedLabel),
                 g.Hours
             })
             .ToList();
 
         var categories = OrderSummaryCategories(
             normalizedGrouped.Select(g => g.Category),
-            sortOrderByCat,
+            sortOrderByLooseKey,
             uncategorizedLabel);
 
         var weeks = normalizedGrouped
@@ -660,8 +656,7 @@ public sealed class CalendarLogProcessor
 
         var accounts = rawEvents.Select(e => e.Account).Distinct(StringComparer.Ordinal).ToList();
         var categoryConfigs = await ListCategoriesAsync(cancellationToken);
-        var canonicalByLower = categoryConfigs
-            .ToDictionary(c => c.Category.ToLowerInvariant(), c => c.Category, StringComparer.Ordinal);
+        var canonicalByLooseKey = BuildCanonicalCategoryMap(categoryConfigs);
         var activeRules = await _db.CalendarCategoryRules
             .AsNoTracking()
             .Where(r => accounts.Contains(r.Account) && r.IsActive)
@@ -718,7 +713,7 @@ public sealed class CalendarLogProcessor
                 accountRules ?? Array.Empty<CalendarCategoryRule>());
             var category = rawCategory == null
                 ? null
-                : canonicalByLower.GetValueOrDefault(rawCategory.Trim().ToLowerInvariant(), rawCategory.Trim());
+                : CanonicalizeCategoryLabel(rawCategory, canonicalByLooseKey, string.Empty);
 
             var localStart = TimeZoneInfo.ConvertTime(raw.StartTime, _timeZone);
             var day = DateOnly.FromDateTime(localStart.DateTime);
@@ -872,8 +867,8 @@ public sealed class CalendarLogProcessor
                         return (cat, afterColonValue);
                     }
 
-                    if (string.Equals(colonPrefix, rule.MatchValue, StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(colonPrefix, rule.Category, StringComparison.OrdinalIgnoreCase))
+                    if (EqualsLoose(colonPrefix, rule.MatchValue)
+                        || EqualsLoose(colonPrefix, rule.Category))
                     {
                         return (rule.Category, afterColonValue);
                     }
@@ -1012,9 +1007,53 @@ public sealed class CalendarLogProcessor
         return trimmed.Length <= 32 ? trimmed : trimmed[..32];
     }
 
+    private static string NormalizeLooseKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        return value.Replace(" ", string.Empty, StringComparison.Ordinal).Trim().ToLowerInvariant();
+    }
+
+    private static bool EqualsLoose(string? left, string? right) =>
+        !string.IsNullOrWhiteSpace(left)
+        && !string.IsNullOrWhiteSpace(right)
+        && string.Equals(NormalizeLooseKey(left), NormalizeLooseKey(right), StringComparison.Ordinal);
+
+    private static Dictionary<string, string> BuildCanonicalCategoryMap(
+        IEnumerable<CalendarCategoryDto> configs)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var c in configs)
+        {
+            var key = NormalizeLooseKey(c.Category);
+            if (!string.IsNullOrEmpty(key) && !map.ContainsKey(key))
+            {
+                map[key] = c.Category;
+            }
+        }
+        return map;
+    }
+
+    private static Dictionary<string, int> BuildSortOrderMap(
+        IEnumerable<CalendarCategoryDto> configs)
+    {
+        var map = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var c in configs)
+        {
+            var key = NormalizeLooseKey(c.Category);
+            if (!string.IsNullOrEmpty(key) && !map.ContainsKey(key))
+            {
+                map[key] = c.SortOrder;
+            }
+        }
+        return map;
+    }
+
     private static string CanonicalizeCategoryLabel(
         string? rawCategory,
-        IReadOnlyDictionary<string, string> canonicalByLower,
+        IReadOnlyDictionary<string, string> canonicalByLooseKey,
         string uncategorizedLabel)
     {
         if (string.IsNullOrWhiteSpace(rawCategory))
@@ -1022,12 +1061,12 @@ public sealed class CalendarLogProcessor
             return uncategorizedLabel;
         }
         var trimmed = rawCategory.Trim();
-        return canonicalByLower.GetValueOrDefault(trimmed.ToLowerInvariant(), trimmed);
+        return canonicalByLooseKey.GetValueOrDefault(NormalizeLooseKey(trimmed), trimmed);
     }
 
     private static List<string> OrderSummaryCategories(
         IEnumerable<string> rawCategories,
-        IReadOnlyDictionary<string, int> sortOrderByCategory,
+        IReadOnlyDictionary<string, int> sortOrderByLooseKey,
         string uncategorizedLabel)
     {
         return rawCategories
@@ -1038,7 +1077,9 @@ public sealed class CalendarLogProcessor
                 {
                     return int.MaxValue;
                 }
-                return sortOrderByCategory.TryGetValue(c, out var order) ? order : int.MaxValue - 1;
+                return sortOrderByLooseKey.TryGetValue(NormalizeLooseKey(c), out var order)
+                    ? order
+                    : int.MaxValue - 1;
             })
             .ThenBy(c => c, StringComparer.OrdinalIgnoreCase)
             .ToList();

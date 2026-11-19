@@ -307,7 +307,8 @@ public sealed class RawEventSyncService
             account,
             calendarId,
             mutationCandidates,
-            cancellationToken);
+            cancellationToken,
+            calendarName);
 
         return new RawEventsSyncResult
         {

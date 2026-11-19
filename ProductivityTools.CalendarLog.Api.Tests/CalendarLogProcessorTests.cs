@@ -141,7 +141,7 @@ public class CalendarLogProcessorTests
         Assert.That(byTitle["Lunch"].Category, Is.EqualTo("Lunch"));
         Assert.That(byTitle["Lunch"].DurationHours, Is.EqualTo(0.5m));
 
-        Assert.That(byTitle["Deep coding"].Category, Is.EqualTo("FocusedWork"));
+        Assert.That(byTitle["Deep coding"].Category, Is.EqualTo("Focused Work"));
         Assert.That(byTitle["Deep coding"].DurationHours, Is.EqualTo(1.5m));
 
         Assert.That(byTitle["1:1 Sync"].Category, Is.EqualTo("Meetings"));
@@ -150,7 +150,7 @@ public class CalendarLogProcessorTests
         Assert.That(byTitle["1:1 Sync"].Month, Is.EqualTo("2026-11"));
         Assert.That(byTitle["1:1 Sync"].WeekNumber, Is.EqualTo(202647));
 
-        Assert.That(byTitle["SelfDevelopment: Architecture book"].Category, Is.EqualTo("SelfDevelopment"));
+        Assert.That(byTitle["SelfDevelopment: Architecture book"].Category, Is.EqualTo("Self Development"));
         Assert.That(byTitle["SelfDevelopment: Architecture book"].Value, Is.EqualTo("Architecture book"));
         Assert.That(byTitle["SelfDevelopment: Architecture book"].DurationHours, Is.EqualTo(1.25m));
 
@@ -178,7 +178,7 @@ public class CalendarLogProcessorTests
         Assert.That(dailySummary.Days[0].Day, Is.EqualTo(new DateOnly(2026, 11, 17)));
         Assert.That(dailySummary.Days[0].TotalHours, Is.EqualTo(4.00m));
         Assert.That(dailySummary.Days[0].ByCategory["Coding"], Is.EqualTo(1.50m));
-        Assert.That(dailySummary.Days[0].ByCategory["SelfDevelopment"], Is.EqualTo(1.25m));
+        Assert.That(dailySummary.Days[0].ByCategory["Self Development"], Is.EqualTo(1.25m));
         Assert.That(dailySummary.Days[0].ByCategory["Meetings"], Is.EqualTo(0.75m));
         Assert.That(dailySummary.Days[0].ByCategory["Lunch"], Is.EqualTo(0.50m));
     }
@@ -300,12 +300,12 @@ public class CalendarLogProcessorTests
         var account = "pwujczyk@google.com";
         var startDay = new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.FromHours(1));
 
-        // Verify default PT.Calendar category sort order (bottom-to-top: OOO .. SelfDevelopment):
+        // Verify default category sort order (bottom-to-top: OOO .. Self Development):
         var defaults = await _processor.ListCategoriesAsync();
         Assert.That(defaults.Select(c => c.Category).ToArray(), Is.EqualTo(new[]
         {
             "OOO", "Meetings", "One2One", "Hanging-out", "TopDown", "Emails",
-            "Operations", "IndividualProjectWork", "FocusedWork", "Journal", "Coding", "SelfDevelopment"
+            "Operations", "Individual Project Work", "Focused Work", "Journal", "Coding", "Self Development"
         }));
 
         await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
@@ -389,11 +389,11 @@ public class CalendarLogProcessorTests
         Assert.That(daily.Days[0].ByCategory["Emails"], Is.EqualTo(0.50m));
         Assert.That(daily.Categories, Is.EqualTo(new[] { "OOO", "Meetings", "Emails" }));
 
-        // Test reordering (move SelfDevelopment first):
-        var sdId = defaults.Single(c => c.Category == "SelfDevelopment").CalendarCategoryId;
+        // Test reordering (move Self Development first):
+        var sdId = defaults.Single(c => c.Category == "Self Development").CalendarCategoryId;
         var reordered = await _processor.ReorderCategoriesAsync(
             new[] { sdId }.Concat(defaults.Where(c => c.CalendarCategoryId != sdId).Select(c => c.CalendarCategoryId)).ToList());
-        Assert.That(reordered[0].Category, Is.EqualTo("SelfDevelopment"));
+        Assert.That(reordered[0].Category, Is.EqualTo("Self Development"));
         Assert.That(reordered[0].SortOrder, Is.EqualTo(10));
     }
 
