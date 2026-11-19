@@ -27,9 +27,9 @@ public class CalendarLogContext : DbContext
             entity.Property(e => e.CalendarId).HasMaxLength(255).IsRequired();
             entity.Property(e => e.CalendarName).HasMaxLength(255).IsRequired();
             entity.Property(e => e.ExternalEventId).HasMaxLength(512).IsRequired();
-            entity.Property(e => e.ICalUid).HasMaxLength(512);
-            entity.Property(e => e.Title).HasMaxLength(1000);
-            entity.Property(e => e.Location).HasMaxLength(1000);
+            entity.Property(e => e.ICalUid).HasMaxLength(1024);
+            entity.Property(e => e.Title);
+            entity.Property(e => e.Location);
             entity.Property(e => e.MyStatus).HasMaxLength(50);
             entity.Property(e => e.EventStatus).HasMaxLength(50);
             entity.Property(e => e.EventType).HasMaxLength(50);
@@ -116,12 +116,12 @@ public class CalendarLogContext : DbContext
             entity.Property(e => e.CalendarName).HasMaxLength(255).IsRequired();
             entity.Property(e => e.Month).HasMaxLength(7).IsRequired();
             entity.Property(e => e.DurationHours).HasPrecision(10, 4);
-            entity.Property(e => e.Title).HasMaxLength(1000);
+            entity.Property(e => e.Title);
             entity.Property(e => e.MyStatus).HasMaxLength(50);
             entity.Property(e => e.EventType).HasMaxLength(50);
             entity.Property(e => e.Color).HasMaxLength(50);
             entity.Property(e => e.Category).HasMaxLength(255);
-            entity.Property(e => e.Value).HasMaxLength(500);
+            entity.Property(e => e.Value);
 
             entity.HasOne(e => e.RawCalendarEvent)
                 .WithMany()

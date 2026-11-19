@@ -692,6 +692,49 @@ public class RawEventSyncServiceTests
         Assert.That(updatedRename.TargetPrefix, Is.EqualTo("SelfDevelopment"));
     }
 
+    [Test]
+    public async Task IngestRawEvents_PreservesVeryLongGvcRoomListLocationAndTitle()
+    {
+        var start = new DateTimeOffset(2026, 11, 16, 10, 0, 0, TimeSpan.FromHours(1));
+        var longLocation = string.Join(
+            ", ",
+            Enumerable.Range(1, 60).Select(i => $"IN-BLR-BCPEK-4-0-{400 + i} Chanderi (2) [GVC]"));
+        var longTitle = "SelfDevelopment: " + new string('X', 2500);
+
+        Assert.That(longLocation.Length, Is.GreaterThan(2000));
+        Assert.That(longTitle.Length, Is.GreaterThan(2500));
+
+        var ev = JsonSerializer.SerializeToElement(new
+        {
+            id = "ev-long-loc",
+            iCalUID = new string('u', 1500) + "@google.com",
+            status = "confirmed",
+            eventType = "default",
+            summary = longTitle,
+            location = longLocation,
+            colorId = "9",
+            start = new { dateTime = start.ToString("O") },
+            end = new { dateTime = start.AddHours(1).ToString("O") },
+            organizer = new { email = "pwujczyk@google.com", self = true }
+        });
+
+        var result = await _service.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = "pwujczyk@google.com",
+            CalendarId = "pwujczyk@google.com",
+            CalendarName = "pwujczyk@google.com",
+            RangeStart = start.AddHours(-1),
+            RangeEnd = start.AddHours(2),
+            Events = new() { ev }
+        });
+
+        Assert.That(result.Inserted, Is.EqualTo(1));
+        var saved = await _db.RawCalendarEvents.SingleAsync();
+        Assert.That(saved.Location, Is.EqualTo(longLocation));
+        Assert.That(saved.Title, Is.EqualTo(longTitle));
+        Assert.That(saved.ICalUid!.Length, Is.EqualTo(1024));
+    }
+
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>
         JsonSerializer.SerializeToElement(new
         {

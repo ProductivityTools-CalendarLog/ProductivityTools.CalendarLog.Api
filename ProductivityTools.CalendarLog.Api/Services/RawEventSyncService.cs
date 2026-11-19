@@ -90,9 +90,9 @@ public sealed class RawEventSyncService
         RawEventsBatchRequest request,
         CancellationToken cancellationToken = default)
     {
-        var account = request.Account.Trim();
-        var calendarId = request.CalendarId.Trim();
-        var calendarName = request.CalendarName.Trim();
+        var account = Truncate(request.Account.Trim(), 255)!;
+        var calendarId = Truncate(request.CalendarId.Trim(), 255)!;
+        var calendarName = Truncate(request.CalendarName.Trim(), 255)!;
 
         if (request.RangeEnd < request.RangeStart)
         {
@@ -485,8 +485,8 @@ public sealed class RawEventSyncService
             : null;
 
         return new ParsedGoogleEvent(
-            ExternalEventId: id,
-            ICalUid: GetString(raw, "iCalUID"),
+            ExternalEventId: Truncate(id, 512)!,
+            ICalUid: Truncate(GetString(raw, "iCalUID"), 1024),
             StartTime: startParsed.Value.Value,
             EndTime: endParsed.Value.Value,
             IsAllDay: startParsed.Value.IsAllDay,
@@ -494,10 +494,10 @@ public sealed class RawEventSyncService
             Title: GetString(raw, "summary"),
             Description: GetString(raw, "description"),
             Location: GetString(raw, "location"),
-            MyStatus: myStatus,
-            EventStatus: GetString(raw, "status"),
-            EventType: GetString(raw, "eventType"),
-            Color: GetString(raw, "colorId"),
+            MyStatus: Truncate(myStatus, 50),
+            EventStatus: Truncate(GetString(raw, "status"), 50),
+            EventType: Truncate(GetString(raw, "eventType"), 50),
+            Color: Truncate(GetString(raw, "colorId"), 50),
             IsOwnedByMe: isOwnedByMe,
             GuestCount: guests.Count,
             GuestsJson: guestsJson,
@@ -539,6 +539,15 @@ public sealed class RawEventSyncService
             return null;
         }
         return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+        return value[..maxLength];
     }
 
     private static DateTimeOffset? ParseOptionalDateTimeOffset(string? value)
