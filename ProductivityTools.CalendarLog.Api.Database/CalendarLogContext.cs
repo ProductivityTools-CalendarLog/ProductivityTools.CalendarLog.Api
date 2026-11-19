@@ -14,6 +14,7 @@ public class CalendarLogContext : DbContext
     public DbSet<CalendarConvertRule> CalendarConvertRules => Set<CalendarConvertRule>();
     public DbSet<CalendarTitleRenameRule> CalendarTitleRenameRules => Set<CalendarTitleRenameRule>();
     public DbSet<CalendarCategoryRule> CalendarCategoryRules => Set<CalendarCategoryRule>();
+    public DbSet<CalendarCategory> CalendarCategories => Set<CalendarCategory>();
     public DbSet<CalendarLogEntry> CalendarLogs => Set<CalendarLogEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -103,6 +104,22 @@ public class CalendarLogContext : DbContext
 
             entity.HasIndex(e => new { e.Account, e.Priority, e.CalendarCategoryRuleId })
                 .HasDatabaseName("IX_CalendarCategoryRule_Account_Priority");
+        });
+
+        modelBuilder.Entity<CalendarCategory>(entity =>
+        {
+            entity.ToTable("CalendarCategory", "dbo");
+            entity.HasKey(e => e.CalendarCategoryId);
+
+            entity.Property(e => e.Category).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.Color).HasMaxLength(32).IsRequired();
+
+            entity.HasIndex(e => e.Category)
+                .IsUnique()
+                .HasDatabaseName("UQ_CalendarCategory_Category");
+
+            entity.HasIndex(e => new { e.SortOrder, e.CalendarCategoryId })
+                .HasDatabaseName("IX_CalendarCategory_SortOrder");
         });
 
         modelBuilder.Entity<CalendarLogEntry>(entity =>

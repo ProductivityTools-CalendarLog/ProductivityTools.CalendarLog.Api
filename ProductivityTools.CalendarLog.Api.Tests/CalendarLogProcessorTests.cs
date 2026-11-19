@@ -294,6 +294,109 @@ public class CalendarLogProcessorTests
         Assert.That(logsW47, Has.Count.EqualTo(2));
     }
 
+    [Test]
+    public async Task ExcludesAllDayEvents_NormalizesCategoryCasing_AndAppliesSpreadsheetCategorySortOrder()
+    {
+        var account = "pwujczyk@google.com";
+        var startDay = new DateTimeOffset(2026, 11, 17, 0, 0, 0, TimeSpan.FromHours(1));
+
+        // Verify default PT.Calendar category sort order (bottom-to-top: OOO .. SelfDevelopment):
+        var defaults = await _processor.ListCategoriesAsync();
+        Assert.That(defaults.Select(c => c.Category).ToArray(), Is.EqualTo(new[]
+        {
+            "OOO", "Meetings", "One2One", "Hanging-out", "TopDown", "Emails",
+            "Operations", "IndividualProjectWork", "FocusedWork", "Journal", "Coding", "SelfDevelopment"
+        }));
+
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "DailyLog",
+            Priority = 10,
+            MatchField = CategoryMatchFields.Title,
+            MatchValue = "emails",
+            Category = "emails" // lowercase in Mapping-DailyLog -> should canonicalize to "Emails"
+        });
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "DailyLog",
+            Priority = 20,
+            MatchField = CategoryMatchFields.Title,
+            MatchValue = "OOO",
+            Category = "OOO"
+        });
+        await _processor.CreateRuleAsync(new UpsertCategoryRuleRequest
+        {
+            Account = account,
+            CalendarId = "*",
+            Priority = 100,
+            MatchField = CategoryMatchFields.CalendarName,
+            MatchValue = account,
+            Category = "Meetings"
+        });
+
+        var allDayBanner = JsonSerializer.SerializeToElement(new
+        {
+            id = "ev-allday-1",
+            iCalUID = "ev-allday-1@google.com",
+            status = "confirmed",
+            eventType = "default",
+            summary = "Company Holiday / SVL Trip Banner",
+            start = new { date = "2026-11-17" },
+            end = new { date = "2026-11-20" },
+            organizer = new { email = account, self = true }
+        });
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = account,
+            CalendarName = account,
+            RangeStart = startDay.AddDays(-1),
+            RangeEnd = startDay.AddDays(5),
+            Events = new()
+            {
+                allDayBanner,
+                MakeEvent("ev-meet-1", "Team Sync", startDay.AddHours(10), 1.0)
+            }
+        });
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = "cal-daily",
+            CalendarName = "DailyLog",
+            RangeStart = startDay.AddDays(-1),
+            RangeEnd = startDay.AddDays(5),
+            Events = new()
+            {
+                MakeEvent("ev-ooo-8h", "OOO", startDay.AddHours(9), 8.0),
+                MakeEvent("ev-emails-lc", "emails", startDay.AddHours(17), 0.5)
+            }
+        });
+
+        var procRes = await _processor.ProcessPendingAsync(account);
+        Assert.That(procRes.RawEventsEvaluated, Is.EqualTo(4));
+        Assert.That(procRes.LogsUpserted, Is.EqualTo(3));
+        Assert.That(procRes.LogsRemovedOrSkipped, Is.EqualTo(1)); // all-day banner excluded!
+
+        var daily = await _processor.GetDailySummaryAsync(account);
+        Assert.That(daily.Days, Has.Count.EqualTo(1));
+        Assert.That(daily.Days[0].TotalHours, Is.EqualTo(9.50m));
+        Assert.That(daily.Days[0].ByCategory["OOO"], Is.EqualTo(8.00m));
+        Assert.That(daily.Days[0].ByCategory["Meetings"], Is.EqualTo(1.00m));
+        Assert.That(daily.Days[0].ByCategory["Emails"], Is.EqualTo(0.50m));
+        Assert.That(daily.Categories, Is.EqualTo(new[] { "OOO", "Meetings", "Emails" }));
+
+        // Test reordering (move SelfDevelopment first):
+        var sdId = defaults.Single(c => c.Category == "SelfDevelopment").CalendarCategoryId;
+        var reordered = await _processor.ReorderCategoriesAsync(
+            new[] { sdId }.Concat(defaults.Where(c => c.CalendarCategoryId != sdId).Select(c => c.CalendarCategoryId)).ToList());
+        Assert.That(reordered[0].Category, Is.EqualTo("SelfDevelopment"));
+        Assert.That(reordered[0].SortOrder, Is.EqualTo(10));
+    }
+
     private static JsonElement MakeEvent(
         string id,
         string summary,

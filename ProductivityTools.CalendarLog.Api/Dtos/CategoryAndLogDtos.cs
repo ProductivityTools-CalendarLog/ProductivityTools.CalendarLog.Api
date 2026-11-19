@@ -61,6 +61,7 @@ public sealed class ReprocessCalendarLogsResult
 public sealed class DailyCategorySummaryResponse
 {
     public List<string> Categories { get; set; } = new();
+    public List<CalendarCategoryDto> CategoryConfigs { get; set; } = new();
     public List<DailyCategoryBucketDto> Days { get; set; } = new();
 }
 
@@ -74,6 +75,7 @@ public sealed class DailyCategoryBucketDto
 public sealed class WeeklyCategorySummaryResponse
 {
     public List<string> Categories { get; set; } = new();
+    public List<CalendarCategoryDto> CategoryConfigs { get; set; } = new();
     public List<WeeklyCategoryBucketDto> Weeks { get; set; } = new();
 }
 
@@ -84,4 +86,32 @@ public sealed class WeeklyCategoryBucketDto
     public DateOnly WeekEndDay { get; set; }
     public decimal TotalHours { get; set; }
     public Dictionary<string, decimal> ByCategory { get; set; } = new();
+}
+
+public sealed class CalendarCategoryDto
+{
+    public int CalendarCategoryId { get; set; }
+    public string Category { get; set; } = string.Empty;
+    public int SortOrder { get; set; }
+    public string Color { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+}
+
+public sealed class UpsertCalendarCategoryRequest
+{
+    [Required]
+    public string Category { get; set; } = string.Empty;
+
+    public int SortOrder { get; set; } = 100;
+
+    [Required]
+    public string Color { get; set; } = "#64748b";
+
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class ReorderCalendarCategoriesRequest
+{
+    [Required]
+    public List<int> OrderedCategoryIds { get; set; } = new();
 }
