@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ProductivityTools.CalendarLog.Api.Database;
 using ProductivityTools.CalendarLog.Api.Database.Entities;
@@ -388,7 +389,12 @@ public sealed class CalendarLogProcessor
         int? weekNumber = null)
     {
         var cappedLimit = Math.Clamp(limit, 1, 10000);
-        var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
+        var query = _db.CalendarLogs
+            .AsNoTracking()
+            .Where(l => !_db.CalendarSyncStates.Any(
+                s => s.Account == l.Account
+                  && s.CalendarId == l.CalendarId
+                  && s.Type == CalendarTypes.DataPoint));
 
         if (!string.IsNullOrWhiteSpace(account))
         {
@@ -434,7 +440,12 @@ public sealed class CalendarLogProcessor
     {
         const string uncategorizedLabel = "Uncategorized";
 
-        var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
+        var query = _db.CalendarLogs
+            .AsNoTracking()
+            .Where(l => !_db.CalendarSyncStates.Any(
+                s => s.Account == l.Account
+                  && s.CalendarId == l.CalendarId
+                  && s.Type == CalendarTypes.DataPoint));
 
         if (!string.IsNullOrWhiteSpace(account))
         {
@@ -531,7 +542,12 @@ public sealed class CalendarLogProcessor
     {
         const string uncategorizedLabel = "Uncategorized";
 
-        var query = _db.CalendarLogs.AsNoTracking().AsQueryable();
+        var query = _db.CalendarLogs
+            .AsNoTracking()
+            .Where(l => !_db.CalendarSyncStates.Any(
+                s => s.Account == l.Account
+                  && s.CalendarId == l.CalendarId
+                  && s.Type == CalendarTypes.DataPoint));
 
         if (!string.IsNullOrWhiteSpace(account))
         {
@@ -643,6 +659,312 @@ public sealed class CalendarLogProcessor
         }
 
         return (DateOnly.MinValue, DateOnly.MinValue);
+    }
+
+    public async Task<DataPointMonthlySummaryResponse> GetDataPointMonthlySummaryAsync(
+        string? account = null,
+        DateOnly? fromDay = null,
+        DateOnly? toDay = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (calendarNames, events) = await LoadResolvedDataPointEventsAsync(
+            account,
+            fromDay,
+            toDay,
+            categoryFilter: null,
+            monthFilter: null,
+            cancellationToken);
+
+        var categories = events
+            .GroupBy(e => e.Category, StringComparer.Ordinal)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(catGroup =>
+            {
+                var valuesOrdered = catGroup
+                    .GroupBy(e => e.Value, StringComparer.Ordinal)
+                    .OrderByDescending(vg => vg.Count())
+                    .ThenBy(vg => vg.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(vg => vg.Key)
+                    .ToList();
+
+                var months = catGroup
+                    .GroupBy(e => e.Month, StringComparer.Ordinal)
+                    .OrderByDescending(mg => mg.Key, StringComparer.Ordinal)
+                    .Select(mg =>
+                    {
+                        var byVal = mg
+                            .GroupBy(e => e.Value, StringComparer.Ordinal)
+                            .ToDictionary(
+                                vg => vg.Key,
+                                vg => vg.Count(),
+                                StringComparer.Ordinal);
+
+                        return new DataPointMonthBucketDto
+                        {
+                            Month = mg.Key,
+                            TotalCount = mg.Count(),
+                            ByValue = byVal
+                        };
+                    })
+                    .ToList();
+
+                return new DataPointCategoryChartDto
+                {
+                    Category = catGroup.Key,
+                    TotalCount = catGroup.Count(),
+                    Values = valuesOrdered,
+                    Months = months
+                };
+            })
+            .ToList();
+
+        return new DataPointMonthlySummaryResponse
+        {
+            DataPointCalendars = calendarNames,
+            TotalEvents = events.Count,
+            Categories = categories
+        };
+    }
+
+    public async Task<List<DataPointEventItemDto>> ListDataPointEventsAsync(
+        string? account = null,
+        string? category = null,
+        string? month = null,
+        DateOnly? fromDay = null,
+        DateOnly? toDay = null,
+        CancellationToken cancellationToken = default)
+    {
+        var (_, events) = await LoadResolvedDataPointEventsAsync(
+            account,
+            fromDay,
+            toDay,
+            category,
+            month,
+            cancellationToken);
+
+        return events
+            .OrderByDescending(e => e.Day)
+            .ThenByDescending(e => e.StartTime)
+            .ThenBy(e => e.RawCalendarEventId)
+            .ToList();
+    }
+
+    private async Task<(List<string> CalendarNames, List<DataPointEventItemDto> Events)> LoadResolvedDataPointEventsAsync(
+        string? account,
+        DateOnly? fromDay,
+        DateOnly? toDay,
+        string? categoryFilter,
+        string? monthFilter,
+        CancellationToken cancellationToken)
+    {
+        var statesQuery = _db.CalendarSyncStates
+            .AsNoTracking()
+            .Where(s => s.Type == CalendarTypes.DataPoint);
+
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalizedAccount = account.Trim();
+            statesQuery = statesQuery.Where(s => s.Account == normalizedAccount);
+        }
+
+        var dataPointStates = await statesQuery
+            .OrderBy(s => s.Account)
+            .ThenBy(s => s.CalendarName ?? s.CalendarId)
+            .ToListAsync(cancellationToken);
+
+        var calendarNames = dataPointStates
+            .Select(s => string.IsNullOrWhiteSpace(s.CalendarName) ? s.CalendarId : s.CalendarName!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (dataPointStates.Count == 0)
+        {
+            return (calendarNames, new List<DataPointEventItemDto>());
+        }
+
+        var rawQuery = _db.RawCalendarEvents
+            .AsNoTracking()
+            .Where(e => !e.IsDeleted
+                && _db.CalendarSyncStates.Any(
+                    s => s.Account == e.Account
+                      && s.CalendarId == e.CalendarId
+                      && s.Type == CalendarTypes.DataPoint));
+
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalizedAccount = account.Trim();
+            rawQuery = rawQuery.Where(e => e.Account == normalizedAccount);
+        }
+
+        var rawEvents = await rawQuery.ToListAsync(cancellationToken);
+
+        var preliminary = new List<(RawCalendarEvent Raw, DateOnly Day, string Month, string RawCategory, string RawValue)>();
+        foreach (var raw in rawEvents)
+        {
+            if (!ShouldIncludeDataPointEvent(raw))
+            {
+                continue;
+            }
+
+            var day = ResolveRawEventLocalDay(raw);
+            if (fromDay.HasValue && day < fromDay.Value)
+            {
+                continue;
+            }
+            if (toDay.HasValue && day > toDay.Value)
+            {
+                continue;
+            }
+
+            var month = day.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+            var (rawCat, rawVal) = ExtractDataPointCategoryAndValue(raw.Title);
+            preliminary.Add((raw, day, month, rawCat, rawVal));
+        }
+
+        // Canonicalize Category labels case-insensitively (preferring most frequent display casing)
+        var categoryCanonical = preliminary
+            .GroupBy(x => x.RawCategory.ToLowerInvariant(), StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => g.GroupBy(x => x.RawCategory, StringComparer.Ordinal)
+                      .OrderByDescending(cg => cg.Count())
+                      .ThenBy(cg => cg.Key, StringComparer.Ordinal)
+                      .First().Key,
+                StringComparer.Ordinal);
+
+        // Within each canonical category, canonicalize Value labels case-insensitively
+        var valueCanonicalByCat = preliminary
+            .GroupBy(
+                x => (
+                    CatKey: x.RawCategory.ToLowerInvariant(),
+                    ValKey: x.RawValue.ToLowerInvariant()),
+                x => x.RawValue)
+            .ToDictionary(
+                g => g.Key,
+                g => g.GroupBy(v => v, StringComparer.Ordinal)
+                      .OrderByDescending(vg => vg.Count())
+                      .ThenBy(vg => vg.Key, StringComparer.Ordinal)
+                      .First().Key);
+
+        var resolved = new List<DataPointEventItemDto>(preliminary.Count);
+        var normalizedCategoryFilter = string.IsNullOrWhiteSpace(categoryFilter) ? null : categoryFilter.Trim();
+        var normalizedMonthFilter = string.IsNullOrWhiteSpace(monthFilter) ? null : monthFilter.Trim();
+
+        foreach (var item in preliminary)
+        {
+            var catKey = item.RawCategory.ToLowerInvariant();
+            var valKey = item.RawValue.ToLowerInvariant();
+            var canonicalCat = categoryCanonical[catKey];
+            var canonicalVal = valueCanonicalByCat[(catKey, valKey)];
+
+            if (normalizedCategoryFilter != null
+                && !string.Equals(canonicalCat, normalizedCategoryFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (normalizedMonthFilter != null
+                && !string.Equals(item.Month, normalizedMonthFilter, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            resolved.Add(new DataPointEventItemDto
+            {
+                RawCalendarEventId = item.Raw.RawCalendarEventId,
+                Account = item.Raw.Account,
+                CalendarId = item.Raw.CalendarId,
+                CalendarName = item.Raw.CalendarName,
+                Day = item.Day,
+                Month = item.Month,
+                StartTime = item.Raw.StartTime,
+                EndTime = item.Raw.EndTime,
+                IsAllDay = item.Raw.IsAllDay,
+                Title = item.Raw.Title,
+                Category = canonicalCat,
+                Value = canonicalVal
+            });
+        }
+
+        return (calendarNames, resolved);
+    }
+
+    private static bool ShouldIncludeDataPointEvent(RawCalendarEvent raw)
+    {
+        if (raw.IsDeleted)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(raw.EventType) && ExcludedEventTypes.Contains(raw.EventType.Trim()))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(raw.MyStatus) && ExcludedStatuses.Contains(raw.MyStatus.Trim()))
+        {
+            return false;
+        }
+
+        if (string.Equals(raw.Color?.Trim(), "1", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private DateOnly ResolveRawEventLocalDay(RawCalendarEvent raw)
+    {
+        if (raw.IsAllDay && !string.IsNullOrWhiteSpace(raw.RawJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(raw.RawJson);
+                if (doc.RootElement.TryGetProperty("start", out var startEl)
+                    && startEl.ValueKind == JsonValueKind.Object
+                    && startEl.TryGetProperty("date", out var dateEl)
+                    && dateEl.ValueKind == JsonValueKind.String)
+                {
+                    var dateStr = dateEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(dateStr)
+                        && DateOnly.TryParseExact(dateStr, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+                    {
+                        return parsedDate;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall back to StartTime timezone conversion below
+            }
+        }
+
+        var localStart = TimeZoneInfo.ConvertTime(raw.StartTime, _timeZone);
+        return DateOnly.FromDateTime(localStart.DateTime);
+    }
+
+    private static (string Category, string Value) ExtractDataPointCategoryAndValue(string? rawTitle)
+    {
+        var title = rawTitle?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(title))
+        {
+            return ("Inne", "(brak wartości)");
+        }
+
+        var colonIdx = title.IndexOf(':');
+        if (colonIdx < 0)
+        {
+            return (title, title);
+        }
+
+        var prefix = title[..colonIdx].Trim();
+        var suffix = title[(colonIdx + 1)..].Trim();
+
+        var category = string.IsNullOrEmpty(prefix) ? "Inne" : prefix;
+        var value = string.IsNullOrEmpty(suffix) ? "(brak wartości)" : suffix;
+        return (category, value);
     }
 
     private async Task<ReprocessCalendarLogsResult> EvaluateAndPersistAsync(

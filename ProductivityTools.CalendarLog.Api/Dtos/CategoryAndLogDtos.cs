@@ -115,3 +115,41 @@ public sealed class ReorderCalendarCategoriesRequest
     [Required]
     public List<int> OrderedCategoryIds { get; set; } = new();
 }
+
+public sealed class DataPointMonthlySummaryResponse
+{
+    public List<string> DataPointCalendars { get; set; } = new();
+    public int TotalEvents { get; set; }
+    public List<DataPointCategoryChartDto> Categories { get; set; } = new();
+}
+
+public sealed class DataPointCategoryChartDto
+{
+    public string Category { get; set; } = string.Empty;
+    public int TotalCount { get; set; }
+    public List<string> Values { get; set; } = new();
+    public List<DataPointMonthBucketDto> Months { get; set; } = new();
+}
+
+public sealed class DataPointMonthBucketDto
+{
+    public string Month { get; set; } = string.Empty;
+    public int TotalCount { get; set; }
+    public Dictionary<string, int> ByValue { get; set; } = new();
+}
+
+public sealed class DataPointEventItemDto
+{
+    public long RawCalendarEventId { get; set; }
+    public string Account { get; set; } = string.Empty;
+    public string CalendarId { get; set; } = string.Empty;
+    public string CalendarName { get; set; } = string.Empty;
+    public DateOnly Day { get; set; }
+    public string Month { get; set; } = string.Empty;
+    public DateTimeOffset StartTime { get; set; }
+    public DateTimeOffset EndTime { get; set; }
+    public bool IsAllDay { get; set; }
+    public string? Title { get; set; }
+    public string Category { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+}

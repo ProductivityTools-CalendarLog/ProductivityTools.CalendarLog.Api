@@ -397,6 +397,107 @@ public class CalendarLogProcessorTests
         Assert.That(reordered[0].SortOrder, Is.EqualTo(10));
     }
 
+    [Test]
+    public async Task DataPointMonthlySummary_CountsOccurrencesByCategoryMonthAndValue_AndIsolatesFromDataLog()
+    {
+        const string account = "pwujczyk@gmail.com";
+        const string dpCalendarId = "datapoints@group.calendar.google.com";
+        const string dlCalendarId = "dailylog@group.calendar.google.com";
+
+        var nowUtc = DateTime.UtcNow;
+        _db.CalendarSyncStates.AddRange(
+            new CalendarSyncState
+            {
+                Account = account,
+                CalendarId = dpCalendarId,
+                CalendarName = "DataPoints",
+                Type = CalendarTypes.DataPoint,
+                IsActive = true,
+                DefaultLookbackDays = 14,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            },
+            new CalendarSyncState
+            {
+                Account = account,
+                CalendarId = dlCalendarId,
+                CalendarName = "DailyLog",
+                Type = CalendarTypes.DataLog,
+                IsActive = true,
+                DefaultLookbackDays = 14,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            });
+        await _db.SaveChangesAsync();
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = dpCalendarId,
+            CalendarName = "DataPoints",
+            RangeStart = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.FromHours(1)),
+            RangeEnd = new DateTimeOffset(2026, 12, 31, 23, 59, 59, TimeSpan.FromHours(1)),
+            Events = new()
+            {
+                MakeEvent("dp-1", "Kategoria1:wartosc1", new DateTimeOffset(2026, 12, 5, 10, 0, 0, TimeSpan.FromHours(1)), 1.0),
+                MakeEvent("dp-2", "Kategoria1:Wartosc2", new DateTimeOffset(2026, 12, 18, 12, 0, 0, TimeSpan.FromHours(1)), 0.5),
+                JsonSerializer.SerializeToElement(new
+                {
+                    id = "dp-allday-sbj",
+                    iCalUID = "dp-allday-sbj@google.com",
+                    status = "confirmed",
+                    eventType = "default",
+                    summary = "SBJ",
+                    start = new { date = "2026-11-20" },
+                    end = new { date = "2026-11-21" },
+                    organizer = new { email = account, self = true }
+                })
+            }
+        });
+
+        await _syncService.IngestRawEventsAsync(new RawEventsBatchRequest
+        {
+            Account = account,
+            CalendarId = dlCalendarId,
+            CalendarName = "DailyLog",
+            RangeStart = new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.FromHours(1)),
+            RangeEnd = new DateTimeOffset(2026, 12, 31, 23, 59, 59, TimeSpan.FromHours(1)),
+            Events = new()
+            {
+                MakeEvent("dl-1", "Coding: Feature X", new DateTimeOffset(2026, 12, 5, 14, 0, 0, TimeSpan.FromHours(1)), 2.0)
+            }
+        });
+
+        await _processor.ProcessPendingAsync(account);
+
+        // 1. DataPoint monthly summary groups by Category -> Month -> Value count
+        var dpSummary = await _processor.GetDataPointMonthlySummaryAsync(account);
+        Assert.That(dpSummary.DataPointCalendars, Is.EqualTo(new[] { "DataPoints" }));
+        Assert.That(dpSummary.TotalEvents, Is.EqualTo(3));
+        Assert.That(dpSummary.Categories, Has.Count.EqualTo(2));
+
+        var kat1 = dpSummary.Categories.Single(c => c.Category == "Kategoria1");
+        Assert.That(kat1.TotalCount, Is.EqualTo(2));
+        Assert.That(kat1.Months, Has.Count.EqualTo(1));
+        Assert.That(kat1.Months[0].Month, Is.EqualTo("2026-12"));
+        Assert.That(kat1.Months[0].TotalCount, Is.EqualTo(2));
+        Assert.That(kat1.Months[0].ByValue["wartosc1"], Is.EqualTo(1));
+        Assert.That(kat1.Months[0].ByValue["Wartosc2"], Is.EqualTo(1));
+
+        var sbj = dpSummary.Categories.Single(c => c.Category == "SBJ");
+        Assert.That(sbj.TotalCount, Is.EqualTo(1));
+        Assert.That(sbj.Months[0].Month, Is.EqualTo("2026-11"));
+        Assert.That(sbj.Months[0].ByValue["SBJ"], Is.EqualTo(1));
+
+        var decEvents = await _processor.ListDataPointEventsAsync(account, "Kategoria1", "2026-12");
+        Assert.That(decEvents, Has.Count.EqualTo(2));
+
+        // 2. DataLog summaries exclude DataPoint calendars completely
+        var dlDaily = await _processor.GetDailySummaryAsync(account);
+        Assert.That(dlDaily.Days, Has.Count.EqualTo(1));
+        Assert.That(dlDaily.Days[0].TotalHours, Is.EqualTo(2.00m));
+    }
+
     private static JsonElement MakeEvent(
         string id,
         string summary,
