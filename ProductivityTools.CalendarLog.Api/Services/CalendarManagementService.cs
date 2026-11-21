@@ -62,6 +62,7 @@ public sealed class CalendarManagementService
         var account = request.Account.Trim();
         var calendarId = request.CalendarId.Trim();
         var calendarName = NormalizeOptional(request.CalendarName);
+        var type = NormalizeCalendarType(request.Type, allowDefaultWhenEmpty: true);
 
         if (string.IsNullOrEmpty(account))
         {
@@ -87,6 +88,7 @@ public sealed class CalendarManagementService
             Account = account,
             CalendarId = calendarId,
             CalendarName = calendarName,
+            Type = type,
             IsActive = request.IsActive,
             DefaultLookbackDays = request.DefaultLookbackDays is >= 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
             PendingBackfillFrom = request.PendingBackfillFrom,
@@ -127,6 +129,10 @@ public sealed class CalendarManagementService
             return null;
         }
 
+        var nextType = request.Type != null
+            ? NormalizeCalendarType(request.Type, allowDefaultWhenEmpty: false)
+            : entity.Type;
+
         var duplicate = await _db.CalendarSyncStates
             .AnyAsync(
                 s => s.CalendarSyncStateId != id && s.Account == account && s.CalendarId == calendarId,
@@ -140,6 +146,7 @@ public sealed class CalendarManagementService
         entity.Account = account;
         entity.CalendarId = calendarId;
         entity.CalendarName = calendarName;
+        entity.Type = nextType;
         entity.IsActive = request.IsActive;
         entity.DefaultLookbackDays = request.DefaultLookbackDays >= 0 ? request.DefaultLookbackDays : _defaultLookbackDays;
         entity.PendingBackfillFrom = request.PendingBackfillFrom;
@@ -169,6 +176,28 @@ public sealed class CalendarManagementService
         return MapToDto(entity);
     }
 
+    public async Task<CalendarItemDto?> SetTypeAsync(
+        int id,
+        string? rawType,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedType = NormalizeCalendarType(rawType, allowDefaultWhenEmpty: false);
+
+        var entity = await _db.CalendarSyncStates
+            .SingleOrDefaultAsync(s => s.CalendarSyncStateId == id, cancellationToken);
+
+        if (entity == null)
+        {
+            return null;
+        }
+
+        entity.Type = normalizedType;
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return MapToDto(entity);
+    }
+
     public async Task<bool> DeleteAsync(
         int id,
         CancellationToken cancellationToken = default)
@@ -186,6 +215,31 @@ public sealed class CalendarManagementService
         return true;
     }
 
+    public static string NormalizeCalendarType(string? value, bool allowDefaultWhenEmpty)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            if (allowDefaultWhenEmpty)
+            {
+                return CalendarTypes.DataLog;
+            }
+            throw new ArgumentException("Type must be either 'DataPoint' or 'DataLog'.");
+        }
+
+        if (string.Equals(trimmed, CalendarTypes.DataPoint, StringComparison.OrdinalIgnoreCase))
+        {
+            return CalendarTypes.DataPoint;
+        }
+
+        if (string.Equals(trimmed, CalendarTypes.DataLog, StringComparison.OrdinalIgnoreCase))
+        {
+            return CalendarTypes.DataLog;
+        }
+
+        throw new ArgumentException("Type must be either 'DataPoint' or 'DataLog'.");
+    }
+
     private static string? NormalizeOptional(string? value)
     {
         var trimmed = value?.Trim();
@@ -198,6 +252,7 @@ public sealed class CalendarManagementService
         Account = s.Account,
         CalendarId = s.CalendarId,
         CalendarName = s.CalendarName,
+        Type = string.IsNullOrWhiteSpace(s.Type) ? CalendarTypes.DataLog : s.Type,
         IsActive = s.IsActive,
         DefaultLookbackDays = s.DefaultLookbackDays,
         LastSyncedDate = s.LastSyncedDate,

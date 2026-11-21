@@ -67,6 +67,7 @@ public sealed class RawEventSyncService
             {
                 CalendarId = state.CalendarId,
                 CalendarName = state.CalendarName,
+                Type = string.IsNullOrWhiteSpace(state.Type) ? CalendarTypes.DataLog : state.Type,
                 LookbackDays = lookbackDays,
                 StartDate = start,
                 EndDate = today,

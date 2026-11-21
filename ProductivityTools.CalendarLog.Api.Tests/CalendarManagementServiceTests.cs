@@ -53,6 +53,7 @@ public class CalendarManagementServiceTests
         Assert.That(created1.Account, Is.EqualTo("pwujczyk@google.com"));
         Assert.That(created1.CalendarId, Is.EqualTo("dailylog@group.calendar.google.com"));
         Assert.That(created1.CalendarName, Is.EqualTo("DailyLog"));
+        Assert.That(created1.Type, Is.EqualTo("DataLog"));
         Assert.That(created1.DefaultLookbackDays, Is.EqualTo(21));
 
         // Duplicate for same account throws DuplicateCalendarException
@@ -62,13 +63,29 @@ public class CalendarManagementServiceTests
             CalendarId = "dailylog@group.calendar.google.com"
         }));
 
-        // Same CalendarId for different account is allowed
+        // Invalid calendar type is rejected
+        Assert.ThrowsAsync<ArgumentException>(() => _service.CreateAsync(new CreateCalendarRequest
+        {
+            Account = "pwujczyk@gmail.com",
+            CalendarId = "invalid-type@group.calendar.google.com",
+            Type = "OtherType"
+        }));
+
+        // Same CalendarId for different account is allowed, with explicit DataPoint type
         var created2 = await _service.CreateAsync(new CreateCalendarRequest
         {
             Account = "pwujczyk@gmail.com",
-            CalendarId = "pwujczyk@gmail.com"
+            CalendarId = "pwujczyk@gmail.com",
+            Type = "datapoint"
         });
         Assert.That(created2.DefaultLookbackDays, Is.EqualTo(14));
+        Assert.That(created2.Type, Is.EqualTo("DataPoint"));
+
+        var switchedType = await _service.SetTypeAsync(created1.CalendarSyncStateId, "DataPoint");
+        Assert.That(switchedType, Is.Not.Null);
+        Assert.That(switchedType!.Type, Is.EqualTo("DataPoint"));
+
+        Assert.ThrowsAsync<ArgumentException>(() => _service.SetTypeAsync(created1.CalendarSyncStateId, "Invalid"));
 
         var all = await _service.ListAsync();
         Assert.That(all, Has.Count.EqualTo(2));
@@ -85,12 +102,14 @@ public class CalendarManagementServiceTests
             Account = "pwujczyk@google.com",
             CalendarId = "dailylog@group.calendar.google.com",
             CalendarName = "DailyLog Updated",
+            Type = "DataLog",
             IsActive = true,
             DefaultLookbackDays = 30,
             PendingBackfillFrom = new DateOnly(2026, 9, 1)
         });
         Assert.That(updated, Is.Not.Null);
         Assert.That(updated!.CalendarName, Is.EqualTo("DailyLog Updated"));
+        Assert.That(updated.Type, Is.EqualTo("DataLog"));
         Assert.That(updated.DefaultLookbackDays, Is.EqualTo(30));
         Assert.That(updated.PendingBackfillFrom, Is.EqualTo(new DateOnly(2026, 9, 1)));
 

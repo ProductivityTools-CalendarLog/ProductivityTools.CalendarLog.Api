@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using ProductivityTools.CalendarLog.Api.Database.Entities;
 
 namespace ProductivityTools.CalendarLog.Api.Dtos;
 
@@ -8,6 +9,7 @@ public sealed class CalendarItemDto
     public string Account { get; set; } = string.Empty;
     public string CalendarId { get; set; } = string.Empty;
     public string? CalendarName { get; set; }
+    public string Type { get; set; } = CalendarTypes.DataLog;
     public bool IsActive { get; set; }
     public int DefaultLookbackDays { get; set; }
     public DateOnly? LastSyncedDate { get; set; }
@@ -27,6 +29,11 @@ public sealed class CreateCalendarRequest
 
     public string? CalendarName { get; set; }
 
+    /// <summary>
+    /// Either "DataPoint" or "DataLog" (defaults to "DataLog").
+    /// </summary>
+    public string? Type { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     [Range(0, 3650)]
@@ -45,6 +52,11 @@ public sealed class UpdateCalendarRequest
 
     public string? CalendarName { get; set; }
 
+    /// <summary>
+    /// Either "DataPoint" or "DataLog" (defaults to "DataLog" if omitted).
+    /// </summary>
+    public string? Type { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     [Range(0, 3650)]
@@ -56,4 +68,10 @@ public sealed class UpdateCalendarRequest
 public sealed class SetCalendarActiveRequest
 {
     public bool IsActive { get; set; }
+}
+
+public sealed class SetCalendarTypeRequest
+{
+    [Required]
+    public string Type { get; set; } = string.Empty;
 }

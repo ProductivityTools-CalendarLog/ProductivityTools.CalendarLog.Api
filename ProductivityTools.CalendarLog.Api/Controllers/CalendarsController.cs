@@ -86,6 +86,23 @@ public class CalendarsController : ControllerBase
         return updated == null ? NotFound() : Ok(updated);
     }
 
+    [HttpPatch("{id:int}/type")]
+    public async Task<ActionResult<CalendarItemDto>> SetType(
+        int id,
+        [FromBody] SetCalendarTypeRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _calendarService.SetTypeAsync(id, request.Type, cancellationToken);
+            return updated == null ? NotFound() : Ok(updated);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(
         int id,

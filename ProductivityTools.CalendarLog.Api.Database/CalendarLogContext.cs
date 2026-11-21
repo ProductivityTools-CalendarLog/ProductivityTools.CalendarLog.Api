@@ -56,6 +56,7 @@ public class CalendarLogContext : DbContext
             entity.Property(e => e.Account).HasMaxLength(255).IsRequired();
             entity.Property(e => e.CalendarId).HasMaxLength(255).IsRequired();
             entity.Property(e => e.CalendarName).HasMaxLength(255);
+            entity.Property(e => e.Type).HasMaxLength(32).IsRequired();
 
             entity.HasIndex(e => new { e.Account, e.CalendarId })
                 .IsUnique()
