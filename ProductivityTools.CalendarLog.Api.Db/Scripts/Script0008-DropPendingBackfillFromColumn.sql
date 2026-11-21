@@ -1,6 +1,8 @@
 IF COL_LENGTH('dbo.CalendarSyncState', 'PendingBackfillFrom') IS NOT NULL
 BEGIN
     DECLARE @dfName sysname;
+    DECLARE @dropConstraintSql NVARCHAR(512);
+
     SELECT @dfName = dc.name
     FROM sys.default_constraints dc
     INNER JOIN sys.columns c
@@ -10,7 +12,8 @@ BEGIN
 
     IF @dfName IS NOT NULL
     BEGIN
-        EXEC(N'ALTER TABLE dbo.CalendarSyncState DROP CONSTRAINT ' + QUOTENAME(@dfName) + N';');
+        SET @dropConstraintSql = N'ALTER TABLE dbo.CalendarSyncState DROP CONSTRAINT ' + QUOTENAME(@dfName) + N';';
+        EXEC sp_executesql @dropConstraintSql;
     END
 
     ALTER TABLE dbo.CalendarSyncState DROP COLUMN PendingBackfillFrom;
