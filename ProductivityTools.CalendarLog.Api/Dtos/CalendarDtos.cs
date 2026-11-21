@@ -14,7 +14,6 @@ public sealed class CalendarItemDto
     public int DefaultLookbackDays { get; set; }
     public DateOnly? LastSyncedDate { get; set; }
     public DateTime? LastSyncedAtUtc { get; set; }
-    public DateOnly? PendingBackfillFrom { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }
@@ -38,8 +37,6 @@ public sealed class CreateCalendarRequest
 
     [Range(0, 3650)]
     public int? DefaultLookbackDays { get; set; }
-
-    public DateOnly? PendingBackfillFrom { get; set; }
 }
 
 public sealed class UpdateCalendarRequest
@@ -61,8 +58,6 @@ public sealed class UpdateCalendarRequest
 
     [Range(0, 3650)]
     public int DefaultLookbackDays { get; set; } = 14;
-
-    public DateOnly? PendingBackfillFrom { get; set; }
 }
 
 public sealed class SetCalendarActiveRequest

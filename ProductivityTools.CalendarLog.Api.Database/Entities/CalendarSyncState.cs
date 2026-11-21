@@ -17,7 +17,6 @@ public class CalendarSyncState
     public int DefaultLookbackDays { get; set; } = 14;
     public DateOnly? LastSyncedDate { get; set; }
     public DateTime? LastSyncedAtUtc { get; set; }
-    public DateOnly? PendingBackfillFrom { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public DateTime UpdatedAtUtc { get; set; }
 }

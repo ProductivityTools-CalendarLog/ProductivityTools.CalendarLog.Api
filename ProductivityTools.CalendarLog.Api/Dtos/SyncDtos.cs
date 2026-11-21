@@ -21,7 +21,6 @@ public sealed class CalendarSyncPlanItem
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }
     public DateOnly? LastSyncedDate { get; set; }
-    public DateOnly? PendingBackfillFrom { get; set; }
 }
 
 public sealed class RawEventsBatchRequest
@@ -107,17 +106,6 @@ public sealed class UpsertTitleRenameRuleRequest
     public bool IsActive { get; set; } = true;
 }
 
-public sealed class BackfillRequest
-{
-    [Required]
-    public string Account { get; set; } = string.Empty;
-
-    [Required]
-    public DateOnly FromDate { get; set; }
-
-    public string? CalendarId { get; set; }
-}
-
 public sealed class UpsertSyncCalendarRequest
 {
     [Required]
@@ -129,5 +117,4 @@ public sealed class UpsertSyncCalendarRequest
     public string? CalendarName { get; set; }
     public bool IsActive { get; set; } = true;
     public int? DefaultLookbackDays { get; set; }
-    public DateOnly? PendingBackfillFrom { get; set; }
 }

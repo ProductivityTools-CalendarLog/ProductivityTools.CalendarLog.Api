@@ -86,37 +86,6 @@ public class RawEventSyncServiceTests
     }
 
     [Test]
-    public async Task RequestBackfill_UpdatesPlan_AndIsClearedAfterCoveringIngest()
-    {
-        var today = new DateOnly(2026, 11, 16);
-
-        await _service.RequestBackfillAsync(new BackfillRequest
-        {
-            Account = "pwujczyk@google.com",
-            CalendarId = "cal-1",
-            FromDate = new DateOnly(2026, 8, 1)
-        });
-
-        var planBefore = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
-        Assert.That(planBefore.StartDate, Is.EqualTo(new DateOnly(2026, 8, 1)));
-
-        await _service.IngestRawEventsAsync(new RawEventsBatchRequest
-        {
-            Account = "pwujczyk@google.com",
-            CalendarId = "cal-1",
-            CalendarName = "DailyLog",
-            RangeStart = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(2)),
-            RangeEnd = new DateTimeOffset(2026, 11, 16, 23, 59, 59, TimeSpan.FromHours(1)),
-            Events = new()
-        });
-
-        var planAfter = await _service.GetSyncPlanAsync("pwujczyk@google.com", today);
-        Assert.That(planAfter.StartDate, Is.EqualTo(new DateOnly(2026, 11, 3)));
-        Assert.That(planAfter.Calendars[0].PendingBackfillFrom, Is.Null);
-        Assert.That(planAfter.Calendars[0].LastSyncedDate, Is.EqualTo(today));
-    }
-
-    [Test]
     public async Task IngestRawEvents_HandlesInsertUnchangedUpdateSoftDeleteAndMovedEvents()
     {
         var rangeStart = new DateTimeOffset(2026, 11, 2, 0, 0, 0, TimeSpan.FromHours(1));

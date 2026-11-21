@@ -91,7 +91,6 @@ public sealed class CalendarManagementService
             Type = type,
             IsActive = request.IsActive,
             DefaultLookbackDays = request.DefaultLookbackDays is >= 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
-            PendingBackfillFrom = request.PendingBackfillFrom,
             CreatedAtUtc = nowUtc,
             UpdatedAtUtc = nowUtc
         };
@@ -149,7 +148,6 @@ public sealed class CalendarManagementService
         entity.Type = nextType;
         entity.IsActive = request.IsActive;
         entity.DefaultLookbackDays = request.DefaultLookbackDays >= 0 ? request.DefaultLookbackDays : _defaultLookbackDays;
-        entity.PendingBackfillFrom = request.PendingBackfillFrom;
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -257,7 +255,6 @@ public sealed class CalendarManagementService
         DefaultLookbackDays = s.DefaultLookbackDays,
         LastSyncedDate = s.LastSyncedDate,
         LastSyncedAtUtc = s.LastSyncedAtUtc,
-        PendingBackfillFrom = s.PendingBackfillFrom,
         CreatedAtUtc = s.CreatedAtUtc,
         UpdatedAtUtc = s.UpdatedAtUtc
     };

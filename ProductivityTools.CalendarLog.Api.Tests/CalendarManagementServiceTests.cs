@@ -104,14 +104,12 @@ public class CalendarManagementServiceTests
             CalendarName = "DailyLog Updated",
             Type = "DataLog",
             IsActive = true,
-            DefaultLookbackDays = 30,
-            PendingBackfillFrom = new DateOnly(2026, 9, 1)
+            DefaultLookbackDays = 30
         });
         Assert.That(updated, Is.Not.Null);
         Assert.That(updated!.CalendarName, Is.EqualTo("DailyLog Updated"));
         Assert.That(updated.Type, Is.EqualTo("DataLog"));
         Assert.That(updated.DefaultLookbackDays, Is.EqualTo(30));
-        Assert.That(updated.PendingBackfillFrom, Is.EqualTo(new DateOnly(2026, 9, 1)));
 
         var deleted = await _service.DeleteAsync(created1.CalendarSyncStateId);
         Assert.That(deleted, Is.True);

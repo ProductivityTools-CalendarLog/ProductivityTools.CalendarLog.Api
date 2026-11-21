@@ -89,25 +89,6 @@ public class SyncController : ControllerBase
     }
 
     /// <summary>
-    /// Schedules a one-time deeper backfill starting from FromDate for an account (or single calendar).
-    /// Requires Firebase ID token.
-    /// </summary>
-    [Authorize]
-    [HttpPost("backfill")]
-    public async Task<IActionResult> RequestBackfill(
-        [FromBody] BackfillRequest request,
-        CancellationToken cancellationToken)
-    {
-        var updatedCount = await _syncService.RequestBackfillAsync(request, cancellationToken);
-        if (updatedCount == 0)
-        {
-            return NotFound($"No sync state found for account '{request.Account}'. Specify calendarId or run an initial sync first.");
-        }
-
-        return Ok(new { account = request.Account.Trim(), fromDate = request.FromDate, calendarsUpdated = updatedCount });
-    }
-
-    /// <summary>
     /// Registers or updates a calendar tracked for synchronization by the server.
     /// Requires Firebase ID token.
     /// </summary>

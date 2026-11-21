@@ -53,11 +53,6 @@ public sealed class RawEventSyncService
             var daysBack = Math.Max(0, lookbackDays - 1);
             var start = today.AddDays(-daysBack);
 
-            if (state.PendingBackfillFrom.HasValue && state.PendingBackfillFrom.Value < start)
-            {
-                start = state.PendingBackfillFrom.Value;
-            }
-
             if (overallStart == null || start < overallStart.Value)
             {
                 overallStart = start;
@@ -71,8 +66,7 @@ public sealed class RawEventSyncService
                 LookbackDays = lookbackDays,
                 StartDate = start,
                 EndDate = today,
-                LastSyncedDate = state.LastSyncedDate,
-                PendingBackfillFrom = state.PendingBackfillFrom
+                LastSyncedDate = state.LastSyncedDate
             });
         }
 
@@ -252,8 +246,7 @@ public sealed class RawEventSyncService
             }
         }
 
-        // 5. Update per-calendar sync state and clear PendingBackfillFrom if covered by this range.
-        var rangeStartDate = ToLocalDate(request.RangeStart);
+        // 5. Update per-calendar sync state.
         var rangeEndDate = ToLocalDate(request.RangeEnd);
 
         var syncState = await _db.CalendarSyncStates
@@ -283,11 +276,6 @@ public sealed class RawEventSyncService
             if (!syncState.LastSyncedDate.HasValue || rangeEndDate > syncState.LastSyncedDate.Value)
             {
                 syncState.LastSyncedDate = rangeEndDate;
-            }
-
-            if (syncState.PendingBackfillFrom.HasValue && rangeStartDate <= syncState.PendingBackfillFrom.Value)
-            {
-                syncState.PendingBackfillFrom = null;
             }
         }
 
@@ -326,55 +314,6 @@ public sealed class RawEventSyncService
         };
     }
 
-    public async Task<int> RequestBackfillAsync(
-        BackfillRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var account = request.Account.Trim();
-        var nowUtc = DateTime.UtcNow;
-
-        if (!string.IsNullOrWhiteSpace(request.CalendarId))
-        {
-            var calendarId = request.CalendarId.Trim();
-            var state = await _db.CalendarSyncStates
-                .SingleOrDefaultAsync(s => s.Account == account && s.CalendarId == calendarId, cancellationToken);
-
-            if (state == null)
-            {
-                _db.CalendarSyncStates.Add(new CalendarSyncState
-                {
-                    Account = account,
-                    CalendarId = calendarId,
-                    DefaultLookbackDays = _defaultLookbackDays,
-                    PendingBackfillFrom = request.FromDate,
-                    CreatedAtUtc = nowUtc,
-                    UpdatedAtUtc = nowUtc
-                });
-            }
-            else
-            {
-                state.PendingBackfillFrom = request.FromDate;
-                state.UpdatedAtUtc = nowUtc;
-            }
-
-            await _db.SaveChangesAsync(cancellationToken);
-            return 1;
-        }
-
-        var states = await _db.CalendarSyncStates
-            .Where(s => s.Account == account)
-            .ToListAsync(cancellationToken);
-
-        foreach (var state in states)
-        {
-            state.PendingBackfillFrom = request.FromDate;
-            state.UpdatedAtUtc = nowUtc;
-        }
-
-        await _db.SaveChangesAsync(cancellationToken);
-        return states.Count;
-    }
-
     public async Task<CalendarSyncState> UpsertCalendarAsync(
         UpsertSyncCalendarRequest request,
         CancellationToken cancellationToken = default)
@@ -395,7 +334,6 @@ public sealed class RawEventSyncService
                 CalendarName = request.CalendarName?.Trim(),
                 IsActive = request.IsActive,
                 DefaultLookbackDays = request.DefaultLookbackDays is >= 0 ? request.DefaultLookbackDays.Value : _defaultLookbackDays,
-                PendingBackfillFrom = request.PendingBackfillFrom,
                 CreatedAtUtc = nowUtc,
                 UpdatedAtUtc = nowUtc
             };
@@ -411,10 +349,6 @@ public sealed class RawEventSyncService
             if (request.DefaultLookbackDays is >= 0)
             {
                 state.DefaultLookbackDays = request.DefaultLookbackDays.Value;
-            }
-            if (request.PendingBackfillFrom.HasValue)
-            {
-                state.PendingBackfillFrom = request.PendingBackfillFrom;
             }
             state.UpdatedAtUtc = nowUtc;
         }
