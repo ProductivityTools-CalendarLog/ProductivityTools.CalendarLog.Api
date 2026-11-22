@@ -704,6 +704,88 @@ public class RawEventSyncServiceTests
         Assert.That(saved.ICalUid!.Length, Is.EqualTo(1024));
     }
 
+    [Test]
+    public async Task ValueRenameRules_RenameSuffixAfterColon_AndChainWithConvertAndPrefixRename()
+    {
+        const string account = "pwujczyk@gmail.com";
+
+        await _mutationPlanner.UpsertConvertRuleAsync(new UpsertConvertRuleRequest
+        {
+            Account = account,
+            KeyPrefix = "DP",
+            TargetCalendarId = "cal-datapoints"
+        });
+
+        await _mutationPlanner.UpsertTitleRenameRuleAsync(new UpsertTitleRenameRuleRequest
+        {
+            Account = account,
+            CalendarId = "cal-datapoints",
+            KeyPrefix = "sp",
+            TargetPrefix = "Sport"
+        });
+
+        var globalValRule = await _mutationPlanner.UpsertValueRenameRuleAsync(new UpsertValueRenameRuleRequest
+        {
+            Account = account,
+            CalendarId = "*",
+            CategoryPrefix = "*",
+            KeySuffix = "b",
+            TargetSuffix = "Basen"
+        });
+
+        await _mutationPlanner.UpsertValueRenameRuleAsync(new UpsertValueRenameRuleRequest
+        {
+            Account = account,
+            CalendarId = "cal-datapoints",
+            CategoryPrefix = "Lekarz",
+            KeySuffix = "b",
+            TargetSuffix = "Badania"
+        });
+
+        var dpMutations = await _mutationPlanner.PlanMutationsAsync(
+            account,
+            "cal-datapoints",
+            new[]
+            {
+                new EventMutationCandidate("e1", "Sport: b"),
+                new EventMutationCandidate("e2", "Lekarz: b"),
+                new EventMutationCandidate("e3", "sp: b"),
+                new EventMutationCandidate("e4", "Sport: Basen"), // already normalized -> no-op
+                new EventMutationCandidate("e5", "b")             // no colon -> untouched by after-colon rule
+            },
+            default,
+            "DataPoints");
+
+        Assert.That(dpMutations, Has.Count.EqualTo(3));
+        Assert.That(dpMutations.Single(m => m.EventId == "e1").NewTitle, Is.EqualTo("Sport: Basen"));
+        Assert.That(dpMutations.Single(m => m.EventId == "e2").NewTitle, Is.EqualTo("Lekarz: Badania"));
+        Assert.That(dpMutations.Single(m => m.EventId == "e3").NewTitle, Is.EqualTo("Sport: Basen"));
+
+        var moveMutations = await _mutationPlanner.PlanMutationsAsync(
+            account,
+            "pwujczyk@gmail.com",
+            new[] { new EventMutationCandidate("e-move", "#DP sp: b") });
+
+        Assert.That(moveMutations, Has.Count.EqualTo(1));
+        Assert.That(moveMutations[0].Action, Is.EqualTo(CalendarMutationActions.Move));
+        Assert.That(moveMutations[0].TargetCalendarId, Is.EqualTo("cal-datapoints"));
+        Assert.That(moveMutations[0].NewTitle, Is.EqualTo("Sport: Basen"));
+
+        var updatedValRule = await _mutationPlanner.UpdateValueRenameRuleAsync(
+            globalValRule.CalendarValueRenameRuleId,
+            new UpsertValueRenameRuleRequest
+            {
+                Account = account,
+                CalendarId = "*",
+                CategoryPrefix = "*",
+                KeySuffix = "b",
+                TargetSuffix = "Basen olimpijski",
+                IsActive = true
+            });
+        Assert.That(updatedValRule, Is.Not.Null);
+        Assert.That(updatedValRule!.TargetSuffix, Is.EqualTo("Basen olimpijski"));
+    }
+
     private static JsonElement MakeGoogleEvent(string id, string summary, DateTimeOffset start) =>
         JsonSerializer.SerializeToElement(new
         {

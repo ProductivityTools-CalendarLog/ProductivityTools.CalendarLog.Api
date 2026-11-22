@@ -174,4 +174,86 @@ public class MutationRulesController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
         return NoContent();
     }
+
+    [HttpGet("value-rename")]
+    public async Task<IActionResult> ListValueRenameRules(
+        [FromQuery] string? account,
+        [FromQuery] string? calendarId,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.CalendarValueRenameRules.AsNoTracking().AsQueryable();
+        if (!string.IsNullOrWhiteSpace(account))
+        {
+            var normalized = account.Trim();
+            query = query.Where(r => r.Account == normalized);
+        }
+
+        if (!string.IsNullOrWhiteSpace(calendarId))
+        {
+            var normalized = calendarId.Trim();
+            query = query.Where(r => r.CalendarId == normalized);
+        }
+
+        var rules = await query
+            .OrderBy(r => r.Account)
+            .ThenBy(r => r.CalendarId)
+            .ThenBy(r => r.CategoryPrefix)
+            .ThenBy(r => r.KeySuffix)
+            .ToListAsync(cancellationToken);
+
+        return Ok(rules);
+    }
+
+    [HttpPost("value-rename")]
+    public async Task<IActionResult> UpsertValueRenameRule(
+        [FromBody] UpsertValueRenameRuleRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rule = await _planner.UpsertValueRenameRuleAsync(request, cancellationToken);
+            return Ok(rule);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpPut("value-rename/{id:int}")]
+    public async Task<IActionResult> UpdateValueRenameRule(
+        int id,
+        [FromBody] UpsertValueRenameRuleRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await _planner.UpdateValueRenameRuleAsync(id, request, cancellationToken);
+            return updated == null ? NotFound() : Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("value-rename/{id:int}")]
+    public async Task<IActionResult> DeleteValueRenameRule(int id, CancellationToken cancellationToken)
+    {
+        var rule = await _db.CalendarValueRenameRules
+            .SingleOrDefaultAsync(r => r.CalendarValueRenameRuleId == id, cancellationToken);
+
+        if (rule == null)
+        {
+            return NotFound();
+        }
+
+        _db.CalendarValueRenameRules.Remove(rule);
+        await _db.SaveChangesAsync(cancellationToken);
+        return NoContent();
+    }
 }

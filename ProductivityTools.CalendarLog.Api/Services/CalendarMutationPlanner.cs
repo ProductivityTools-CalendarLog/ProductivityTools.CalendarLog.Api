@@ -39,7 +39,12 @@ public sealed class CalendarMutationPlanner
             .Where(r => r.Account == normalizedAccount && r.IsActive)
             .ToListAsync(cancellationToken);
 
-        if (convertRules.Count == 0 && renameRules.Count == 0)
+        var valueRenameRules = await _db.CalendarValueRenameRules
+            .AsNoTracking()
+            .Where(r => r.Account == normalizedAccount && r.IsActive)
+            .ToListAsync(cancellationToken);
+
+        if (convertRules.Count == 0 && renameRules.Count == 0 && valueRenameRules.Count == 0)
         {
             return new List<CalendarMutationCommand>();
         }
@@ -74,6 +79,32 @@ public sealed class CalendarMutationPlanner
             map[key] = targetPrefix;
         }
 
+        var valueRenameByCalAndCat =
+            new Dictionary<string, Dictionary<string, Dictionary<string, string>>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rule in valueRenameRules)
+        {
+            var calId = rule.CalendarId.Trim();
+            var catPrefix = NormalizeCategoryPrefixScope(rule.CategoryPrefix);
+            var keySuffix = NormalizeRenameKey(rule.KeySuffix);
+            var targetSuffix = rule.TargetSuffix.Trim();
+            if (string.IsNullOrEmpty(calId) || string.IsNullOrEmpty(keySuffix) || string.IsNullOrEmpty(targetSuffix))
+            {
+                continue;
+            }
+
+            if (!valueRenameByCalAndCat.TryGetValue(calId, out var byCat))
+            {
+                byCat = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+                valueRenameByCalAndCat[calId] = byCat;
+            }
+            if (!byCat.TryGetValue(catPrefix, out var bySuffix))
+            {
+                bySuffix = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                byCat[catPrefix] = bySuffix;
+            }
+            bySuffix[keySuffix] = targetSuffix;
+        }
+
         var mutations = new List<CalendarMutationCommand>();
         foreach (var candidate in candidates)
         {
@@ -83,7 +114,8 @@ public sealed class CalendarMutationPlanner
                 candidate.ExternalEventId,
                 candidate.Title,
                 convertByKey,
-                renameByCalendar);
+                renameByCalendar,
+                valueRenameByCalAndCat);
 
             if (command != null)
             {
@@ -292,13 +324,138 @@ public sealed class CalendarMutationPlanner
         return rule;
     }
 
+    public async Task<CalendarValueRenameRule> UpsertValueRenameRuleAsync(
+        UpsertValueRenameRuleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var account = request.Account.Trim();
+        var calendarId = request.CalendarId.Trim();
+        var categoryPrefix = NormalizeCategoryPrefixScope(request.CategoryPrefix);
+        var keySuffix = NormalizeRenameKey(request.KeySuffix);
+        var targetSuffix = request.TargetSuffix.Trim();
+
+        if (string.IsNullOrEmpty(account))
+        {
+            throw new ArgumentException("Account must not be empty.");
+        }
+        if (string.IsNullOrEmpty(calendarId))
+        {
+            throw new ArgumentException("CalendarId must not be empty.");
+        }
+        if (string.IsNullOrEmpty(keySuffix))
+        {
+            throw new ArgumentException("KeySuffix must not be empty.");
+        }
+        if (string.IsNullOrEmpty(targetSuffix))
+        {
+            throw new ArgumentException("TargetSuffix must not be empty.");
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        var rule = await _db.CalendarValueRenameRules
+            .SingleOrDefaultAsync(
+                r => r.Account == account
+                  && r.CalendarId == calendarId
+                  && r.CategoryPrefix == categoryPrefix
+                  && r.KeySuffix == keySuffix,
+                cancellationToken);
+
+        if (rule == null)
+        {
+            rule = new CalendarValueRenameRule
+            {
+                Account = account,
+                CalendarId = calendarId,
+                CategoryPrefix = categoryPrefix,
+                KeySuffix = keySuffix,
+                TargetSuffix = targetSuffix,
+                IsActive = request.IsActive,
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            };
+            _db.CalendarValueRenameRules.Add(rule);
+        }
+        else
+        {
+            rule.TargetSuffix = targetSuffix;
+            rule.IsActive = request.IsActive;
+            rule.UpdatedAtUtc = nowUtc;
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return rule;
+    }
+
+    public async Task<CalendarValueRenameRule?> UpdateValueRenameRuleAsync(
+        int id,
+        UpsertValueRenameRuleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var account = request.Account.Trim();
+        var calendarId = request.CalendarId.Trim();
+        var categoryPrefix = NormalizeCategoryPrefixScope(request.CategoryPrefix);
+        var keySuffix = NormalizeRenameKey(request.KeySuffix);
+        var targetSuffix = request.TargetSuffix.Trim();
+
+        if (string.IsNullOrEmpty(account))
+        {
+            throw new ArgumentException("Account must not be empty.");
+        }
+        if (string.IsNullOrEmpty(calendarId))
+        {
+            throw new ArgumentException("CalendarId must not be empty.");
+        }
+        if (string.IsNullOrEmpty(keySuffix))
+        {
+            throw new ArgumentException("KeySuffix must not be empty.");
+        }
+        if (string.IsNullOrEmpty(targetSuffix))
+        {
+            throw new ArgumentException("TargetSuffix must not be empty.");
+        }
+
+        var rule = await _db.CalendarValueRenameRules
+            .SingleOrDefaultAsync(r => r.CalendarValueRenameRuleId == id, cancellationToken);
+
+        if (rule == null)
+        {
+            return null;
+        }
+
+        var duplicate = await _db.CalendarValueRenameRules.AnyAsync(
+            r => r.CalendarValueRenameRuleId != id
+                && r.Account == account
+                && r.CalendarId == calendarId
+                && r.CategoryPrefix == categoryPrefix
+                && r.KeySuffix == keySuffix,
+            cancellationToken);
+
+        if (duplicate)
+        {
+            throw new InvalidOperationException(
+                $"Value rename rule '{keySuffix}' (prefix '{categoryPrefix}') already exists for calendar '{calendarId}'.");
+        }
+
+        rule.Account = account;
+        rule.CalendarId = calendarId;
+        rule.CategoryPrefix = categoryPrefix;
+        rule.KeySuffix = keySuffix;
+        rule.TargetSuffix = targetSuffix;
+        rule.IsActive = request.IsActive;
+        rule.UpdatedAtUtc = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return rule;
+    }
+
     private static CalendarMutationCommand? PlanSingle(
         string sourceCalendarId,
         string? sourceCalendarName,
         string externalEventId,
         string? title,
         IReadOnlyDictionary<string, string> convertByKey,
-        IReadOnlyDictionary<string, Dictionary<string, string>> renameByCalendar)
+        IReadOnlyDictionary<string, Dictionary<string, string>> renameByCalendar,
+        IReadOnlyDictionary<string, Dictionary<string, Dictionary<string, string>>> valueRenameByCalAndCat)
     {
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -327,8 +484,15 @@ public sealed class CalendarMutationPlanner
 
             if (!string.IsNullOrEmpty(rawKey) && convertByKey.TryGetValue(rawKey, out var targetCalendarId))
             {
-                // Chain target calendar's title rename rules so "#DL sd: reading" moves directly as "Self Development: reading".
-                var finalTitle = TryApplyTitleRename(strippedTitle, targetCalendarId, null, renameByCalendar) ?? strippedTitle;
+                // Chain target calendar's before-colon and after-colon rename rules.
+                var finalTitle =
+                    TryApplyTitleAndValueRename(
+                        strippedTitle,
+                        targetCalendarId,
+                        null,
+                        renameByCalendar,
+                        valueRenameByCalAndCat)
+                    ?? strippedTitle;
 
                 if (!string.Equals(targetCalendarId, sourceCalendarId, StringComparison.Ordinal))
                 {
@@ -357,8 +521,14 @@ public sealed class CalendarMutationPlanner
             }
         }
 
-        // 2. Check prefix-before-colon title normalization rules (replaces Analysis.js ReplaceTitleWithCategory).
-        var renamedTitle = TryApplyTitleRename(title, sourceCalendarId, sourceCalendarName, renameByCalendar);
+        // 2. Check before-colon and after-colon title normalization rules.
+        var renamedTitle = TryApplyTitleAndValueRename(
+            title,
+            sourceCalendarId,
+            sourceCalendarName,
+            renameByCalendar,
+            valueRenameByCalAndCat);
+
         if (renamedTitle != null)
         {
             return new CalendarMutationCommand
@@ -368,6 +538,88 @@ public sealed class CalendarMutationPlanner
                 EventId = externalEventId,
                 NewTitle = renamedTitle
             };
+        }
+
+        return null;
+    }
+
+    private static string? TryApplyTitleAndValueRename(
+        string title,
+        string calendarId,
+        string? calendarName,
+        IReadOnlyDictionary<string, Dictionary<string, string>> renameByCalendar,
+        IReadOnlyDictionary<string, Dictionary<string, Dictionary<string, string>>> valueRenameByCalAndCat)
+    {
+        var current = TryApplyTitleRename(title, calendarId, calendarName, renameByCalendar) ?? title;
+        var afterValue = TryApplyValueRename(current, calendarId, calendarName, valueRenameByCalAndCat) ?? current;
+        return string.Equals(afterValue, title, StringComparison.Ordinal) ? null : afterValue;
+    }
+
+    private static string? TryApplyValueRename(
+        string title,
+        string calendarId,
+        string? calendarName,
+        IReadOnlyDictionary<string, Dictionary<string, Dictionary<string, string>>> valueRenameByCalAndCat)
+    {
+        if (valueRenameByCalAndCat.Count == 0)
+        {
+            return null;
+        }
+
+        var colonIndex = title.IndexOf(':');
+        if (colonIndex == -1)
+        {
+            return null;
+        }
+
+        var rawPrefix = title[..colonIndex].Trim();
+        var rawSuffix = title[(colonIndex + 1)..].Trim();
+        if (string.IsNullOrEmpty(rawSuffix))
+        {
+            return null;
+        }
+
+        var targetSuffix =
+            LookupValueTarget(valueRenameByCalAndCat, calendarId, rawPrefix, rawSuffix)
+            ?? (!string.IsNullOrEmpty(calendarName)
+                ? LookupValueTarget(valueRenameByCalAndCat, calendarName, rawPrefix, rawSuffix)
+                : null)
+            ?? LookupValueTarget(valueRenameByCalAndCat, WildcardCalendarId, rawPrefix, rawSuffix);
+
+        if (targetSuffix == null)
+        {
+            return null;
+        }
+
+        var newTitle = string.IsNullOrEmpty(rawPrefix)
+            ? $": {targetSuffix}"
+            : $"{rawPrefix}: {targetSuffix}";
+
+        return string.Equals(newTitle, title, StringComparison.Ordinal) ? null : newTitle;
+    }
+
+    private static string? LookupValueTarget(
+        IReadOnlyDictionary<string, Dictionary<string, Dictionary<string, string>>> valueRenameByCalAndCat,
+        string calKey,
+        string rawPrefix,
+        string rawSuffix)
+    {
+        if (!valueRenameByCalAndCat.TryGetValue(calKey, out var byCat))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(rawPrefix)
+            && byCat.TryGetValue(rawPrefix, out var specificMap)
+            && specificMap.TryGetValue(rawSuffix, out var specificTarget))
+        {
+            return specificTarget;
+        }
+
+        if (byCat.TryGetValue(WildcardCalendarId, out var wildcardMap)
+            && wildcardMap.TryGetValue(rawSuffix, out var wildcardTarget))
+        {
+            return wildcardTarget;
         }
 
         return null;
@@ -443,4 +695,12 @@ public sealed class CalendarMutationPlanner
 
     public static string NormalizeRenameKey(string keyPrefix) =>
         keyPrefix.Trim().ToLowerInvariant();
+
+    public static string NormalizeCategoryPrefixScope(string? categoryPrefix)
+    {
+        var trimmed = categoryPrefix?.Trim();
+        return string.IsNullOrEmpty(trimmed) || trimmed == WildcardCalendarId
+            ? WildcardCalendarId
+            : trimmed.ToLowerInvariant();
+    }
 }

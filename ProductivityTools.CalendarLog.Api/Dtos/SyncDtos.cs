@@ -106,6 +106,31 @@ public sealed class UpsertTitleRenameRuleRequest
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class UpsertValueRenameRuleRequest
+{
+    [Required]
+    public string Account { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Target calendar ID, or "*" to match all calendars for this account.
+    /// </summary>
+    [Required]
+    public string CalendarId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional prefix before ":" to scope this rule (e.g. "Sport"), or "*" for any prefix.
+    /// </summary>
+    public string CategoryPrefix { get; set; } = "*";
+
+    [Required]
+    public string KeySuffix { get; set; } = string.Empty;
+
+    [Required]
+    public string TargetSuffix { get; set; } = string.Empty;
+
+    public bool IsActive { get; set; } = true;
+}
+
 public sealed class UpsertSyncCalendarRequest
 {
     [Required]

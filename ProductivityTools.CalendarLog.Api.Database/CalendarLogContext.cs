@@ -13,6 +13,7 @@ public class CalendarLogContext : DbContext
     public DbSet<CalendarSyncState> CalendarSyncStates => Set<CalendarSyncState>();
     public DbSet<CalendarConvertRule> CalendarConvertRules => Set<CalendarConvertRule>();
     public DbSet<CalendarTitleRenameRule> CalendarTitleRenameRules => Set<CalendarTitleRenameRule>();
+    public DbSet<CalendarValueRenameRule> CalendarValueRenameRules => Set<CalendarValueRenameRule>();
     public DbSet<CalendarCategoryRule> CalendarCategoryRules => Set<CalendarCategoryRule>();
     public DbSet<CalendarCategory> CalendarCategories => Set<CalendarCategory>();
     public DbSet<CalendarLogEntry> CalendarLogs => Set<CalendarLogEntry>();
@@ -90,6 +91,22 @@ public class CalendarLogContext : DbContext
             entity.HasIndex(e => new { e.Account, e.CalendarId, e.KeyPrefix })
                 .IsUnique()
                 .HasDatabaseName("UQ_CalendarTitleRenameRule_Account_Calendar_KeyPrefix");
+        });
+
+        modelBuilder.Entity<CalendarValueRenameRule>(entity =>
+        {
+            entity.ToTable("CalendarValueRenameRule", "dbo");
+            entity.HasKey(e => e.CalendarValueRenameRuleId);
+
+            entity.Property(e => e.Account).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.CalendarId).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.CategoryPrefix).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.KeySuffix).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.TargetSuffix).HasMaxLength(200).IsRequired();
+
+            entity.HasIndex(e => new { e.Account, e.CalendarId, e.CategoryPrefix, e.KeySuffix })
+                .IsUnique()
+                .HasDatabaseName("UQ_CalendarValueRenameRule_Account_Calendar_Category_KeySuffix");
         });
 
         modelBuilder.Entity<CalendarCategoryRule>(entity =>
