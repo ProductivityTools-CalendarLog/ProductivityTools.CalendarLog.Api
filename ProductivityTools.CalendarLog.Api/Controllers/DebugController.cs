@@ -44,4 +44,11 @@ public class DebugController : ControllerBase
     {
         return _db.Database.SqlQuery<string>($"select @@SERVERNAME as value").Single();
     }
+
+    [HttpGet]
+    [Route("DatabaseName")]
+    public string DatabaseName()
+    {
+        return _db.Database.SqlQuery<string>($"select DB_NAME() as value").Single();
+    }
 }
